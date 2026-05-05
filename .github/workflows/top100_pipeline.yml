@@ -1,6 +1,9 @@
 name: Top100 Momentum Pipeline
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       mode:
@@ -57,7 +60,10 @@ jobs:
           mode="${{ inputs.mode }}"
           force_refresh="${{ inputs.force_refresh_prices }}"
 
-          if [ "${{ github.event_name }}" = "schedule" ]; then
+          if [ "${{ github.event_name }}" = "push" ]; then
+            mode="tests"
+            force_refresh="false"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
             case "${{ github.event.schedule }}" in
               "30 6 * * 1-5")
                 mode="tail_capture"
