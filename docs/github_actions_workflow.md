@@ -37,6 +37,24 @@ Each run uploads a workflow artifact that includes:
 
 This keeps the workflow stateless and safe by default. The workflow does not commit generated data back into the repository automatically.
 
+The workflow now also syncs generated outputs back to `main` for these modes:
+
+- `full`
+- `tail_capture`
+- `recompute`
+
+It does **not** sync outputs for `tests`.
+
+To avoid endless workflow loops, the `push` trigger ignores report-only commits under:
+
+- `data/raw/popularity_top100.csv`
+- `data/raw/intraday_snapshots.csv`
+- `data/processed/signals*.csv`
+- `data/processed/followups*.csv`
+- `data/processed/fast_strategy_history*.csv`
+- `data/processed/market_regime.csv`
+- `data/reports/*.csv`
+
 ## Recommended Usage
 
 If you want a cloud-based replacement for local automations:
@@ -48,7 +66,4 @@ If you want a cloud-based replacement for local automations:
 
 ## Important Note
 
-Artifacts are stored on GitHub Actions and are not synced back to your local machine automatically. If you want the cloud run results to become the main data source for your local Streamlit dashboard later, add either:
-
-- an explicit download-and-sync step on your local machine, or
-- a follow-up workflow that commits generated report files back to a branch.
+Artifacts are still stored on GitHub Actions, but the main daily outputs are now also committed back to `main`. Your local Streamlit dashboard can use them after a normal `git pull`.
