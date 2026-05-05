@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import html
+import os
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +20,7 @@ from plotly.subplots import make_subplots
 
 from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend
 from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
-from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
+from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
 from src.pipeline import run_pipeline
 from src.settings import load_settings
 from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label
@@ -253,6 +256,35 @@ def render_today_snapshot_status() -> None:
     for label, status, detail in today_snapshot_status_rows(target_day):
         st.sidebar.markdown(f"**{label}**：{status}")
         st.sidebar.caption(detail)
+
+
+def sync_latest_cloud_results() -> dict[str, object]:
+    git_executable = shutil.which("git")
+    if not git_executable:
+        raise RuntimeError("当前环境没有检测到 git，无法同步云端结果。")
+
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    completed = subprocess.run(
+        [git_executable, "pull", "--ff-only"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=env,
+    )
+    stdout = str(completed.stdout or "").strip()
+    stderr = str(completed.stderr or "").strip()
+    combined_output = "\n".join(part for part in [stdout, stderr] if part).strip()
+    return {
+        "success": completed.returncode == 0,
+        "returncode": completed.returncode,
+        "output": combined_output,
+        "updated": "Already up to date." not in combined_output,
+        "finished_at": datetime.now().isoformat(timespec="seconds"),
+    }
 
 
 def load_prev_close(code: str, trade_date: str) -> float | None:
@@ -1220,6 +1252,38 @@ def render_sidebar_daily_flow() -> str:
         st.sidebar.caption(description)
 
     render_today_snapshot_status()
+
+    st.sidebar.markdown("### 云端同步")
+    st.sidebar.caption("从 GitHub 拉取云端自动跑完后回写到 main 的最新报表。")
+    if st.sidebar.button("同步最新云端结果", type="secondary", width="stretch"):
+        try:
+            with st.spinner("正在从 GitHub 同步最新结果..."):
+                sync_result = sync_latest_cloud_results()
+            st.session_state["last_cloud_sync_result"] = sync_result
+            st.session_state.pop("last_cloud_sync_error", None)
+            _load_csv_cached.clear()
+            if sync_result.get("success"):
+                if sync_result.get("updated"):
+                    st.sidebar.success("已同步到最新云端结果，当前页面正在刷新。")
+                else:
+                    st.sidebar.info("云端没有更新提交，本地已经是最新。")
+                st.rerun()
+            st.sidebar.error(f"同步失败：{sync_result.get('output') or 'git pull 执行失败'}")
+        except Exception as exc:
+            st.session_state["last_cloud_sync_error"] = str(exc)
+            st.sidebar.error(f"同步失败：{exc}")
+
+    if "last_cloud_sync_result" in st.session_state:
+        sync_result = st.session_state["last_cloud_sync_result"]
+        with st.sidebar.expander("最近一次云端同步", expanded=False):
+            st.write(f"完成：{sync_result.get('finished_at', '-')}")
+            st.write(f"状态：{'成功' if sync_result.get('success') else '失败'}")
+            st.write(f"返回码：{sync_result.get('returncode', '-')}")
+            st.code(str(sync_result.get("output") or "无输出"))
+
+    if "last_cloud_sync_error" in st.session_state:
+        with st.sidebar.expander("最近一次同步错误", expanded=False):
+            st.code(st.session_state["last_cloud_sync_error"])
 
     recompute_only = st.sidebar.checkbox(
         "只重算当前缓存",
