@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.streamlit/
+.venv/
+.pytest_cache/
+workflow_artifacts/
+*.log
+data/raw/stock_prices/
+data/raw/index_prices/
+data/raw/intraday_bars/
+data/raw/intraday_snapshots.csv
+data/raw/popularity_top100.csv
+data/processed/*.csv
+data/reports/*.csv

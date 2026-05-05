@@ -1,0 +1,104 @@
+name: Top100 Momentum Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run mode
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - tail_capture
+          - recompute
+          - tests
+      force_refresh_prices:
+        description: Force remote price refresh
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "30 6 * * 1-5"
+    - cron: "10 9 * * 1-5"
+
+concurrency:
+  group: top100-momentum-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      PYTHONUTF8: "1"
+      TZ: Asia/Shanghai
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Resolve mode
+        id: resolve
+        shell: bash
+        run: |
+          mode="${{ inputs.mode }}"
+          force_refresh="${{ inputs.force_refresh_prices }}"
+
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            case "${{ github.event.schedule }}" in
+              "30 6 * * 1-5")
+                mode="tail_capture"
+                ;;
+              "10 9 * * 1-5")
+                mode="full"
+                ;;
+              *)
+                mode="full"
+                ;;
+            esac
+            force_refresh="false"
+          fi
+
+          echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+          echo "force_refresh=${force_refresh}" >> "$GITHUB_OUTPUT"
+
+      - name: Create artifact directory
+        run: mkdir -p workflow_artifacts/logs
+
+      - name: Run selected task
+        shell: bash
+        run: |
+          cmd=(python workflow_job.py --mode "${{ steps.resolve.outputs.mode }}" --summary-path workflow_artifacts/workflow_summary.md --log-dir workflow_artifacts/logs)
+          if [ "${{ steps.resolve.outputs.force_refresh }}" = "true" ]; then
+            cmd+=(--force-refresh-prices)
+          fi
+          "${cmd[@]}"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: top100-${{ steps.resolve.outputs.mode }}-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            workflow_artifacts/
+            data/reports/
+            data/processed/signals*.csv
+            data/processed/followups*.csv
+            data/processed/fast_strategy_history*.csv
+            data/processed/market_regime.csv
+            data/raw/popularity_top100.csv
+            data/raw/intraday_snapshots.csv
