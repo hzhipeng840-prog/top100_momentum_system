@@ -1,0 +1,2 @@
+﻿signal_date,market_regime,market_score,market_1d_pct,market_5d_pct,market_lag_days,market_price_date,market_source,sh_1d_pct,sz_1d_pct,cyb_1d_pct,sh_5d_pct,sz_5d_pct,cyb_5d_pct
+2026-05-06,强势,74.04,1.97,2.76,0,2026-05-06,common_index_cache,1.17,2.33,2.75,1.97,3.48,3.01

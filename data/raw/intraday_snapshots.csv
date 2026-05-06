@@ -1,0 +1,2 @@
+﻿snapshot_time,capture_type,code,name,last_price,open,prev_close,current_return_pct,day_high_so_far,day_low_so_far,volume_so_far,amount_so_far,turnover_pct,volume_ratio,source
+2026-05-06 14:30:00,intraday_1430,000062,深圳华强,36.88,37.99,36.92,-0.11,40.13,36.22,1284890.0,4882508904.8,12.3,1.1,eastmoney.single_stock_quote
