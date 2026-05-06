@@ -18,9 +18,17 @@ import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
 
+from src.backtest_queries import (
+    BACKTEST_GROUP_NAMES,
+    BACKTEST_METRIC_KEY_TO_LABEL,
+    build_backtest_compare_table,
+    build_backtest_metric_matrix,
+    build_backtest_metric_snapshot,
+    normalize_backtest_summary,
+)
 from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend
 from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
-from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
+from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
 from src.pipeline import run_pipeline
 from src.settings import load_settings
 from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label
@@ -878,6 +886,95 @@ def build_push_level_trend_figure(trend_df: pd.DataFrame, metric_label: str, tit
     return fig
 
 
+def _group_value_color(group_value: str) -> str:
+    if str(group_value) in PUSH_LEVEL_COLORS:
+        return _push_level_color(str(group_value))
+    palette = {
+        "Top3": "#D1495B",
+        "Top10": "#EDAE49",
+        "Top20": "#2B7DE9",
+        "Top50": "#4CB944",
+        "Top100": "#5C677D",
+        "首次上榜": "#2B7DE9",
+        "连续第2天": "#EDAE49",
+        "连续第3天": "#D1495B",
+        "连续4天及以上": "#5C677D",
+    }
+    return palette.get(str(group_value), "#5C677D")
+
+
+def build_backtest_group_bar_figure(summary_df: pd.DataFrame, metric_label: str, title: str) -> go.Figure:
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("上涨胜率", f"{metric_label}均值"),
+        horizontal_spacing=0.12,
+    )
+    if summary_df.empty:
+        fig.update_layout(height=340, margin=dict(l=10, r=10, t=54, b=10), title=title)
+        return fig
+
+    working = summary_df.copy()
+    for column in ["sample_count", "pushed_count", "valid_count", "win_rate_pct", "avg_return_pct", "strong_rate_pct"]:
+        if column in working.columns:
+            working[column] = pd.to_numeric(working[column], errors="coerce")
+    working = working[pd.to_numeric(working["valid_count"], errors="coerce").fillna(0) > 0].copy()
+    if working.empty:
+        fig.update_layout(
+            height=340,
+            margin=dict(l=10, r=10, t=54, b=10),
+            title=title,
+            annotations=[
+                dict(
+                    text="当前筛选范围内还没有可结算样本",
+                    x=0.5,
+                    y=0.5,
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                )
+            ],
+        )
+        return fig
+
+    colors = [_group_value_color(value) for value in working["group_value"]]
+    customdata = working[["sample_count", "pushed_count", "valid_count", "strong_rate_pct"]].to_numpy()
+    fig.add_trace(
+        go.Bar(
+            x=working["group_value"],
+            y=working["win_rate_pct"],
+            marker_color=colors,
+            text=working["win_rate_pct"].map(lambda v: "-" if pd.isna(v) else f"{float(v):.1f}%"),
+            textposition="outside",
+            customdata=customdata,
+            hovertemplate="分组 %{x}<br>上涨胜率 %{y:.2f}%<br>样本数 %{customdata[0]}<br>推送数 %{customdata[1]}<br>已结算 %{customdata[2]}<br>强势率 %{customdata[3]:.2f}%<extra></extra>",
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Bar(
+            x=working["group_value"],
+            y=working["avg_return_pct"],
+            marker_color=colors,
+            text=working["avg_return_pct"].map(lambda v: "-" if pd.isna(v) else f"{float(v):.2f}%"),
+            textposition="outside",
+            customdata=customdata,
+            hovertemplate="分组 %{x}<br>平均收益 %{y:.2f}%<br>样本数 %{customdata[0]}<br>推送数 %{customdata[1]}<br>已结算 %{customdata[2]}<br>强势率 %{customdata[3]:.2f}%<extra></extra>",
+            showlegend=False,
+        ),
+        row=1,
+        col=2,
+    )
+    fig.update_yaxes(title_text="胜率 %", row=1, col=1)
+    fig.update_yaxes(title_text="平均收益 %", row=1, col=2)
+    fig.update_layout(height=360, margin=dict(l=10, r=10, t=54, b=10), title=title)
+    fig.add_hline(y=50, line_dash="dot", line_color="rgba(15, 23, 42, 0.18)", row=1, col=1)
+    fig.add_hline(y=0, line_dash="dot", line_color="rgba(15, 23, 42, 0.18)", row=1, col=2)
+    return fig
+
+
 def version_display_name(strategy_version: str) -> str:
     return str(get_strategy_profile(strategy_version).get("name", strategy_version.upper()))
 
@@ -1193,6 +1290,7 @@ def dataset_paths_for_version(strategy_version: str) -> dict[str, Path]:
     return {
         "signals": signals_csv_for(normalized),
         "followups": followups_csv_for(normalized),
+        "backtest_summary": backtest_summary_csv_for(normalized),
         "latest_push": latest_push_csv_for(normalized),
         "fast_strategy": fast_strategy_csv_for(normalized),
         "fast_strategy_audit": fast_strategy_audit_csv_for(normalized),
@@ -1363,11 +1461,20 @@ selected_strategy_version = render_sidebar_daily_flow()
 data = load_all(selected_strategy_version)
 signals_df = data["signals"]
 followups_df = data["followups"]
+backtest_summary_df = normalize_backtest_summary(data.get("backtest_summary", pd.DataFrame()), selected_strategy_version)
 latest_push_df = data["latest_push"]
 fast_strategy_df = data["fast_strategy"]
 fast_strategy_audit_df = data["fast_strategy_audit"]
 strong_recap_df = data["strong_recap"]
-rule_eval_df = data["rule_eval"]
+rule_eval_df = (
+    build_backtest_metric_matrix(
+        backtest_summary_df,
+        strategy_version=selected_strategy_version,
+        metric_keys=list(BACKTEST_METRIC_KEY_TO_LABEL.keys()),
+    )
+    if not backtest_summary_df.empty
+    else data["rule_eval"]
+)
 lesson_eval_df = data["lesson_eval"]
 market_regime_df = data["market_regime"]
 
@@ -1770,12 +1877,22 @@ else:
         version: (data if version == selected_strategy_version else load_all(version))
         for version in AVAILABLE_STRATEGY_VERSIONS
     }
+    for version in AVAILABLE_STRATEGY_VERSIONS:
+        version_backtest_summary = normalize_backtest_summary(compare_data.get(version, {}).get("backtest_summary", pd.DataFrame()), version)
+        if version_backtest_summary.empty:
+            continue
+        compare_data[version]["backtest_summary"] = version_backtest_summary
+        compare_data[version]["rule_eval"] = build_backtest_metric_matrix(
+            version_backtest_summary,
+            strategy_version=version,
+            metric_keys=list(BACKTEST_METRIC_KEY_TO_LABEL.keys()),
+        )
     compare_versions = [
         version
         for version in AVAILABLE_STRATEGY_VERSIONS
         if any(
             not compare_data.get(version, {}).get(dataset_key, pd.DataFrame()).empty
-            for dataset_key in ["followups", "rule_eval"]
+            for dataset_key in ["followups", "backtest_summary", "rule_eval"]
         )
     ]
 
@@ -1917,6 +2034,151 @@ else:
 
         st.divider()
         st.markdown("##### 策略版本汇总规则对比")
+        st.markdown("##### 正式回测汇总")
+        st.caption("这里直接读取 `backtest_summary*.csv`，按正式回测汇总看版本差异；下面保留的宽表则是从这套正式汇总即时透视出来的兼容视图。")
+        compare_backtest_summary = {
+            version: compare_data.get(version, {}).get("backtest_summary", pd.DataFrame())
+            for version in compare_versions
+        }
+        summary_versions = [version for version in compare_versions if not compare_backtest_summary.get(version, pd.DataFrame()).empty]
+        if summary_versions:
+            summary_metric_options = [
+                (metric_key, metric_label)
+                for metric_key, metric_label in BACKTEST_METRIC_KEY_TO_LABEL.items()
+                if any(compare_backtest_summary.get(version, pd.DataFrame())["metric_key"].eq(metric_key).any() for version in summary_versions)
+            ]
+            summary_group_options = [
+                group_name
+                for group_name in BACKTEST_GROUP_NAMES
+                if any(compare_backtest_summary.get(version, pd.DataFrame())["group_name"].eq(group_name).any() for version in summary_versions)
+            ]
+            default_summary_metric_label = strategy_default_metric_label(selected_strategy_version)
+            default_summary_metric_index = 0
+            for index, (_, metric_label) in enumerate(summary_metric_options):
+                if metric_label == default_summary_metric_label:
+                    default_summary_metric_index = index
+                    break
+
+            summary_controls = st.columns([1.0, 1.0, 0.8, 0.8], gap="small")
+            with summary_controls[0]:
+                selected_summary_group_name = st.selectbox("汇总分组维度", options=summary_group_options, index=0, key="backtest_summary_group_name")
+            with summary_controls[1]:
+                selected_summary_metric_label = st.selectbox(
+                    "汇总收益窗口",
+                    options=[label for _, label in summary_metric_options],
+                    index=default_summary_metric_index,
+                    key="backtest_summary_metric_label",
+                )
+            with summary_controls[2]:
+                summary_min_sample_count = int(st.number_input("最小样本数", min_value=0, max_value=9999, value=0, step=1, key="backtest_summary_min_sample"))
+            with summary_controls[3]:
+                summary_min_valid_count = int(st.number_input("最小已结算", min_value=0, max_value=9999, value=0, step=1, key="backtest_summary_min_valid"))
+
+            selected_summary_metric_key = next(
+                (metric_key for metric_key, metric_label in summary_metric_options if metric_label == selected_summary_metric_label),
+                summary_metric_options[0][0],
+            )
+            backtest_snapshot_by_version = {
+                version: build_backtest_metric_snapshot(
+                    compare_backtest_summary.get(version, pd.DataFrame()),
+                    metric_key=selected_summary_metric_key,
+                    group_name=selected_summary_group_name,
+                    strategy_version=version,
+                    min_sample_count=summary_min_sample_count,
+                    min_valid_count=summary_min_valid_count,
+                )
+                for version in summary_versions
+            }
+
+            snapshot_cols = st.columns(len(summary_versions), gap="large")
+            for version, column in zip(summary_versions, snapshot_cols):
+                with column:
+                    st.markdown(f"**{version_display_name(version)}**")
+                    version_snapshot_df = backtest_snapshot_by_version.get(version, pd.DataFrame())
+                    settled_total = int(pd.to_numeric(version_snapshot_df.get("valid_count"), errors="coerce").fillna(0).sum()) if not version_snapshot_df.empty else 0
+                    pushed_total = int(pd.to_numeric(version_snapshot_df.get("pushed_count"), errors="coerce").fillna(0).sum()) if not version_snapshot_df.empty else 0
+                    avg_return_mean = pd.to_numeric(version_snapshot_df.get("avg_return_pct"), errors="coerce").dropna().mean() if not version_snapshot_df.empty else None
+                    render_compact_cards(
+                        [
+                            ("分组数", len(version_snapshot_df)),
+                            ("推送数", pushed_total),
+                            ("已结算", settled_total),
+                            ("组均值", "-" if avg_return_mean is None or pd.isna(avg_return_mean) else f"{float(avg_return_mean):.2f}%"),
+                        ],
+                        widths=[0.9, 0.9, 0.9, 1.0],
+                        label_font_size="0.78rem",
+                        value_font_size="1.02rem",
+                        min_height="3.85rem",
+                    )
+                    st.plotly_chart(
+                        build_backtest_group_bar_figure(
+                            version_snapshot_df,
+                            selected_summary_metric_label,
+                            f"{version_display_name(version)} · {selected_summary_group_name}",
+                        ),
+                        key=f"backtest_summary_bar_{version}_{selected_summary_group_name}_{selected_summary_metric_key}",
+                        width="stretch",
+                        config={"displayModeBar": False},
+                    )
+            if len(summary_versions) >= 2:
+                baseline_summary_version = summary_versions[0]
+                st.caption(f"下面这张正式回测对比表以 {version_display_name(baseline_summary_version)} 为基准，变化列按“当前版本 - 基准版本”计算。")
+                backtest_compare_df = build_backtest_compare_table(
+                    compare_backtest_summary,
+                    metric_key=selected_summary_metric_key,
+                    group_name=selected_summary_group_name,
+                    min_sample_count=summary_min_sample_count,
+                    min_valid_count=summary_min_valid_count,
+                )
+                backtest_compare_columns = ["group_name", "group_value"]
+                backtest_compare_rename = {
+                    "group_name": "分组类型",
+                    "group_value": "分组",
+                }
+                for version in summary_versions:
+                    version_name = version_display_name(version)
+                    backtest_compare_columns.extend(
+                        [
+                            f"{version}_sample_count",
+                            f"{version}_pushed_count",
+                            f"{version}_valid_count",
+                            f"{version}_win_rate_pct",
+                            f"{version}_avg_return_pct",
+                            f"{version}_strong_rate_pct",
+                        ]
+                    )
+                    backtest_compare_rename[f"{version}_sample_count"] = f"{version_name}样本数"
+                    backtest_compare_rename[f"{version}_pushed_count"] = f"{version_name}推送数"
+                    backtest_compare_rename[f"{version}_valid_count"] = f"{version_name}已结算"
+                    backtest_compare_rename[f"{version}_win_rate_pct"] = f"{version_name}{selected_summary_metric_label}胜率%"
+                    backtest_compare_rename[f"{version}_avg_return_pct"] = f"{version_name}{selected_summary_metric_label}均值%"
+                    backtest_compare_rename[f"{version}_strong_rate_pct"] = f"{version_name}{selected_summary_metric_label}强势率%"
+                for version in summary_versions[1:]:
+                    version_name = version_display_name(version)
+                    base_name = version_display_name(baseline_summary_version)
+                    backtest_compare_columns.extend(
+                        [
+                            f"{version}_vs_{baseline_summary_version}_pushed_count_delta",
+                            f"{version}_vs_{baseline_summary_version}_valid_count_delta",
+                            f"{version}_vs_{baseline_summary_version}_win_rate_pct_delta",
+                            f"{version}_vs_{baseline_summary_version}_avg_return_pct_delta",
+                            f"{version}_vs_{baseline_summary_version}_strong_rate_pct_delta",
+                        ]
+                    )
+                    backtest_compare_rename[f"{version}_vs_{baseline_summary_version}_pushed_count_delta"] = f"{version_name}-{base_name}推送变化"
+                    backtest_compare_rename[f"{version}_vs_{baseline_summary_version}_valid_count_delta"] = f"{version_name}-{base_name}结算变化"
+                    backtest_compare_rename[f"{version}_vs_{baseline_summary_version}_win_rate_pct_delta"] = f"{version_name}-{base_name}胜率变化"
+                    backtest_compare_rename[f"{version}_vs_{baseline_summary_version}_avg_return_pct_delta"] = f"{version_name}-{base_name}均值变化"
+                    backtest_compare_rename[f"{version}_vs_{baseline_summary_version}_strong_rate_pct_delta"] = f"{version_name}-{base_name}强势率变化"
+                display_table(
+                    backtest_compare_df,
+                    columns=backtest_compare_columns,
+                    rename=backtest_compare_rename,
+                    limit=40,
+                )
+        else:
+            st.info("当前还没有可用的正式回测汇总。")
+
         summary_metric_key = RULE_EVAL_METRIC_LABEL_TO_KEY.get(selected_perf_metric, "5d")
         rule_eval_compare_df = build_rule_eval_compare_table(
             {
@@ -2029,6 +2291,39 @@ else:
         columns=rule_eval_columns,
         rename=rule_eval_rename,
     )
+    with st.expander("查看当前版本正式回测原始汇总行", expanded=False):
+        display_table(
+            backtest_summary_df,
+            columns=[
+                "strategy_version",
+                "group_name",
+                "group_value",
+                "metric_key",
+                "metric_label",
+                "sample_count",
+                "pushed_count",
+                "valid_count",
+                "avg_return_pct",
+                "win_rate_pct",
+                "strong_rate_pct",
+                "generated_at",
+            ],
+            rename={
+                "strategy_version": "版本",
+                "group_name": "分组类型",
+                "group_value": "分组",
+                "metric_key": "指标键",
+                "metric_label": "收益窗口",
+                "sample_count": "样本数",
+                "pushed_count": "推送数",
+                "valid_count": "已结算",
+                "avg_return_pct": "平均收益%",
+                "win_rate_pct": "胜率%",
+                "strong_rate_pct": "强势率%",
+                "generated_at": "生成时间",
+            },
+            limit=120,
+        )
     st.subheader(f"反哺统计：{version_display_name(selected_strategy_version)}")
     st.caption("这里看的是反哺标签本身的后验表现，用来判断哪些标签该加权，哪些该降权。")
     display_table(
