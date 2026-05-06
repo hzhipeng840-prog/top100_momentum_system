@@ -10,6 +10,8 @@ This project now includes a GitHub Actions workflow at `.github/workflows/top100
   Runs the 14:30 intraday pipeline with an auto-generated `--snapshot-time` in `Asia/Shanghai`.
 - `recompute`
   Rebuilds local outputs from existing cached data with `python daily_job.py --no-fetch`.
+- `backtest`
+  Rebuilds the formal backtest summary service outputs from existing `signals` and `followups` without fetching new market data.
 - `tests`
   Runs the unittest suite with `python -m unittest discover -s tests -v`.
 
@@ -42,6 +44,7 @@ The workflow now also syncs generated outputs back to `main` for these modes:
 - `full`
 - `tail_capture`
 - `recompute`
+- `backtest`
 
 It does **not** sync outputs for `tests`.
 

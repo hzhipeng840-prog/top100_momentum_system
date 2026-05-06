@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+from src.backtest_service import build_backtest_summary, build_rule_evaluation_view, run_backtest_service
 from src.paths import (
+    backtest_summary_csv_for,
     fast_strategy_audit_csv_for,
     fast_strategy_csv_for,
     fast_strategy_history_csv_for,
@@ -983,7 +985,7 @@ def _summarize_group(df: pd.DataFrame, group_name: str, group_value: str) -> dic
     return result
 
 
-def build_rule_evaluation(
+def _legacy_build_rule_evaluation(
     signal_df: pd.DataFrame,
     followup_df: pd.DataFrame,
     strategy_version: str = DEFAULT_STRATEGY_VERSION,
@@ -1011,6 +1013,21 @@ def build_rule_evaluation(
     if not result.empty:
         result["strategy_version"] = strategy_version
     return result
+
+
+def build_rule_evaluation(
+    signal_df: pd.DataFrame,
+    followup_df: pd.DataFrame,
+    strategy_version: str = DEFAULT_STRATEGY_VERSION,
+) -> pd.DataFrame:
+    if signal_df.empty or followup_df.empty:
+        return pd.DataFrame()
+    summary_df = build_backtest_summary(
+        signal_df=signal_df,
+        followup_df=followup_df,
+        strategy_version=strategy_version,
+    )
+    return build_rule_evaluation_view(summary_df, strategy_version=strategy_version)
 
 
 LESSON_EVALUATION_COLUMNS = [
@@ -1096,6 +1113,7 @@ def build_reports(
     strong_recap_path = strong_recap_csv_for(strategy_version)
     rule_evaluation_path = rule_evaluation_csv_for(strategy_version)
     lesson_evaluation_path = lesson_evaluation_csv_for(strategy_version)
+    backtest_summary_path = backtest_summary_csv_for(strategy_version)
 
     latest_push_df = build_latest_push(signal_df, limit=latest_push_limit)
     fast_strategy_df = build_fast_strategy(signal_df, followup_df, strategy_version=strategy_version)
@@ -1117,11 +1135,14 @@ def build_reports(
         threshold_pct=strong_return_threshold_pct,
         strategy_version=strategy_version,
     )
-    rule_eval_df = build_rule_evaluation(
-        signal_df,
-        followup_df,
+    backtest_result = run_backtest_service(
+        signal_df=signal_df,
+        followup_df=followup_df,
         strategy_version=strategy_version,
+        summary_path=backtest_summary_path,
+        rule_evaluation_path=rule_evaluation_path,
     )
+    rule_eval_df = backtest_result.rule_evaluation_df
     lesson_eval_df = build_lesson_evaluation(fast_strategy_audit_df, strong_threshold=strong_return_threshold_pct)
 
     for frame in [latest_push_df, fast_strategy_df, fast_strategy_audit_df, strong_recap_df, rule_eval_df, lesson_eval_df]:
@@ -1132,7 +1153,6 @@ def build_reports(
     write_csv(fast_strategy_df, fast_strategy_path)
     write_csv(fast_strategy_audit_df, fast_strategy_audit_path)
     write_csv(strong_recap_df, strong_recap_path)
-    write_csv(rule_eval_df, rule_evaluation_path)
     write_csv(lesson_eval_df, lesson_evaluation_path)
 
     return {
@@ -1143,6 +1163,7 @@ def build_reports(
         "fast_strategy_audit_rows": len(fast_strategy_audit_df),
         "strong_recap_rows": len(strong_recap_df),
         "rule_evaluation_rows": len(rule_eval_df),
+        "backtest_summary_rows": len(backtest_result.summary_df),
         "lesson_evaluation_rows": len(lesson_eval_df),
         "latest_push_path": str(latest_push_path),
         "fast_strategy_path": str(fast_strategy_path),
@@ -1150,5 +1171,6 @@ def build_reports(
         "fast_strategy_audit_path": str(fast_strategy_audit_path),
         "strong_recap_path": str(strong_recap_path),
         "rule_evaluation_path": str(rule_evaluation_path),
+        "backtest_summary_path": str(backtest_summary_path),
         "lesson_evaluation_path": str(lesson_evaluation_path),
     }

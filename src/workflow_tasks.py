@@ -8,10 +8,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.paths import PROJECT_ROOT
+from src.run_modes import DEFAULT_RUN_MODE_TIMEZONE, default_tail_snapshot_time
 
 
-SUPPORTED_WORKFLOW_MODES = ("full", "tail_capture", "recompute", "tests")
-DEFAULT_WORKFLOW_TIMEZONE = "Asia/Shanghai"
+SUPPORTED_WORKFLOW_MODES = ("full", "tail_capture", "recompute", "backtest", "tests")
+DEFAULT_WORKFLOW_TIMEZONE = DEFAULT_RUN_MODE_TIMEZONE
 
 
 def validate_workflow_mode(mode: str) -> str:
@@ -28,8 +29,10 @@ def build_tail_snapshot_time(
     hour: int = 14,
     minute: int = 30,
 ) -> str:
+    if run_time is None:
+        return default_tail_snapshot_time(timezone=timezone, hour=hour, minute=minute)
     zone = ZoneInfo(timezone)
-    current = run_time.astimezone(zone) if run_time is not None else datetime.now(zone)
+    current = run_time.astimezone(zone)
     snapshot_time = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
     return snapshot_time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -45,20 +48,20 @@ def build_workflow_command(
     normalized = validate_workflow_mode(mode)
     python_cmd = python_executable or sys.executable
 
-    if normalized == "full":
-        command = [python_cmd, "daily_job.py", "--capture-type", "post_close"]
-    elif normalized == "tail_capture":
+    if normalized == "tail_capture":
         resolved_snapshot_time = snapshot_time or build_tail_snapshot_time(timezone=timezone)
         command = [
             python_cmd,
             "daily_job.py",
-            "--capture-type",
-            "intraday_1430",
+            "--mode",
+            normalized,
             "--snapshot-time",
             resolved_snapshot_time,
+            "--timezone",
+            timezone,
         ]
-    elif normalized == "recompute":
-        command = [python_cmd, "daily_job.py", "--no-fetch"]
+    elif normalized in {"full", "recompute", "backtest"}:
+        command = [python_cmd, "daily_job.py", "--mode", normalized, "--timezone", timezone]
     else:
         command = [python_cmd, "-m", "unittest", "discover", "-s", "tests", "-v"]
 
@@ -115,6 +118,16 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
                 f"- Followup Rows: `{followups_payload.get('rows', 0)}`",
             ]
         )
+        backtests_payload = payload.get("backtests", {}) if isinstance(payload.get("backtests"), dict) else {}
+        if backtests_payload:
+            lines.extend(["", "## Backtest Service", ""])
+            for version, stats in backtests_payload.items():
+                if not isinstance(stats, dict):
+                    continue
+                lines.append(
+                    f"- `{version}`: summary `{stats.get('summary_rows', 0)}`, "
+                    f"rule_eval `{stats.get('rule_evaluation_rows', 0)}`, generated `{stats.get('generated_at', '-')}`"
+                )
 
     if result.get("stderr"):
         lines.extend(["", "## STDERR", "", "```text", str(result["stderr"]).strip(), "```"])

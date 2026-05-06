@@ -30,6 +30,7 @@ FAST_STRATEGY_AUDIT_CSV = REPORT_DIR / "fast_strategy_audit.csv"
 STRONG_RECAP_CSV = REPORT_DIR / "strong_recap.csv"
 RULE_EVALUATION_CSV = REPORT_DIR / "rule_evaluation.csv"
 LESSON_EVALUATION_CSV = REPORT_DIR / "lesson_evaluation.csv"
+BACKTEST_SUMMARY_CSV = REPORT_DIR / "backtest_summary.csv"
 
 
 DIRECTORIES = [
@@ -94,3 +95,7 @@ def rule_evaluation_csv_for(strategy_version: object = "v1") -> Path:
 
 def lesson_evaluation_csv_for(strategy_version: object = "v1") -> Path:
     return versioned_path(LESSON_EVALUATION_CSV, strategy_version)
+
+
+def backtest_summary_csv_for(strategy_version: object = "v1") -> Path:
+    return versioned_path(BACKTEST_SUMMARY_CSV, strategy_version)

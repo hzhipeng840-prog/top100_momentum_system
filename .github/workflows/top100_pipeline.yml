@@ -23,6 +23,7 @@ on:
           - full
           - tail_capture
           - recompute
+          - backtest
           - tests
       force_refresh_prices:
         description: Force remote price refresh

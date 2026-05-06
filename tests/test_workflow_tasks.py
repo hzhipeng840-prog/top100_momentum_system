@@ -46,16 +46,22 @@ class WorkflowTasksTest(unittest.TestCase):
             [
                 "python",
                 "daily_job.py",
-                "--capture-type",
-                "intraday_1430",
+                "--mode",
+                "tail_capture",
                 "--snapshot-time",
                 "2026-05-06 14:30:00",
+                "--timezone",
+                "Asia/Shanghai",
             ],
         )
 
     def test_build_workflow_command_for_recompute(self) -> None:
         command = build_workflow_command("recompute", python_executable="python")
-        self.assertEqual(command, ["python", "daily_job.py", "--no-fetch"])
+        self.assertEqual(command, ["python", "daily_job.py", "--mode", "recompute", "--timezone", "Asia/Shanghai"])
+
+    def test_build_workflow_command_for_backtest(self) -> None:
+        command = build_workflow_command("backtest", python_executable="python")
+        self.assertEqual(command, ["python", "daily_job.py", "--mode", "backtest", "--timezone", "Asia/Shanghai"])
 
     def test_write_workflow_summary_includes_pipeline_status(self) -> None:
         tmpdir = self._workspace_tempdir()
