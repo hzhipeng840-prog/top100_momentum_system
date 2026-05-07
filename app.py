@@ -1330,7 +1330,7 @@ def load_all(strategy_version: str) -> dict[str, pd.DataFrame]:
 
 def render_sidebar_daily_flow() -> str:
     st.sidebar.title("工作区")
-    st.sidebar.caption("研究每日人气 Top100：收盘版、修正版、尾盘版都能在这里切换。")
+    st.sidebar.caption("只保留今天会变的内容；固定说明都收起来了。")
 
     strategy_label_map = {version: get_strategy_profile(version).get("name", version.upper()) for version in AVAILABLE_STRATEGY_VERSIONS}
     default_strategy_index = AVAILABLE_STRATEGY_VERSIONS.index(DEFAULT_APP_STRATEGY_VERSION) if DEFAULT_APP_STRATEGY_VERSION in AVAILABLE_STRATEGY_VERSIONS else 0
@@ -1342,17 +1342,14 @@ def render_sidebar_daily_flow() -> str:
         key="dashboard_strategy_version",
     )
     selected_strategy_profile = get_strategy_profile(selected_strategy_version)
-    st.sidebar.caption(str(selected_strategy_profile.get("description", "")))
-
-    st.sidebar.markdown("### 日常主流程")
-    for step_no, title, description in DAILY_FLOW_STEPS:
-        st.sidebar.markdown(f"**{step_no}. {title}**")
-        st.sidebar.caption(description)
+    st.sidebar.caption(f"当前版本：{selected_strategy_profile.get('name', selected_strategy_version.upper())}")
+    with st.sidebar.expander("版本说明", expanded=False):
+        st.write(str(selected_strategy_profile.get("description", "")))
 
     render_today_snapshot_status()
 
     st.sidebar.markdown("### 云端同步")
-    st.sidebar.caption("从 GitHub 拉取云端自动跑完后回写到 main 的最新报表。")
+    st.sidebar.caption("拉取云端自动回写到 main 的最新报表。")
     if st.sidebar.button("同步最新云端结果", type="secondary", width="stretch"):
         try:
             with st.spinner("正在从 GitHub 同步最新结果..."):
@@ -1383,6 +1380,7 @@ def render_sidebar_daily_flow() -> str:
         with st.sidebar.expander("最近一次同步错误", expanded=False):
             st.code(st.session_state["last_cloud_sync_error"])
 
+    st.sidebar.markdown("### 今日操作")
     recompute_only = st.sidebar.checkbox(
         "只重算当前缓存",
         value=False,
@@ -1452,6 +1450,14 @@ def render_sidebar_daily_flow() -> str:
     if "last_pipeline_error" in st.session_state:
         with st.sidebar.expander("最近一次错误", expanded=False):
             st.code(st.session_state["last_pipeline_error"])
+
+    with st.sidebar.expander("固定说明", expanded=False):
+        st.markdown("**日常主流程**")
+        for step_no, title, description in DAILY_FLOW_STEPS:
+            st.markdown(f"**{step_no}. {title}**")
+            st.caption(description)
+        st.markdown("**使用建议**")
+        st.caption("每天主要看：今日快照状态、云端同步结果、最近一次结果。固定说明不用天天展开。")
 
     return selected_strategy_version
 
