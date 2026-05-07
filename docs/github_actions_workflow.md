@@ -118,6 +118,86 @@ If the service supports custom headers and JSON bodies, call the GitHub REST end
 
 Payload examples are shown above.
 
+### Recommended zero-manual setup: cron-job.org
+
+`cron-job.org` fits this repository well because it supports:
+
+- custom headers
+- `POST` requests with a JSON body
+- execution history with response details
+- failure email notifications
+
+Recommended setup:
+
+#### Job 1: 14:30 tail capture
+
+- Name: `top100 tail_capture`
+- URL: `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
+- Method: `POST`
+- Schedule: weekdays at `14:30` in `Asia/Shanghai`
+- Headers:
+  - `Accept: application/vnd.github+json`
+  - `Authorization: Bearer <YOUR_GITHUB_TOKEN>`
+  - `X-GitHub-Api-Version: 2022-11-28`
+- Body:
+
+```json
+{
+  "ref": "main",
+  "inputs": {
+    "mode": "tail_capture",
+    "force_refresh_prices": false
+  }
+}
+```
+
+#### Job 2: 17:10 post-close full run
+
+- Name: `top100 full`
+- URL: `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
+- Method: `POST`
+- Schedule: weekdays at `17:10` in `Asia/Shanghai`
+- Headers:
+  - `Accept: application/vnd.github+json`
+  - `Authorization: Bearer <YOUR_GITHUB_TOKEN>`
+  - `X-GitHub-Api-Version: 2022-11-28`
+- Body:
+
+```json
+{
+  "ref": "main",
+  "inputs": {
+    "mode": "full",
+    "force_refresh_prices": false
+  }
+}
+```
+
+#### What you need to check day to day
+
+After the two jobs are created, the intended operating model is:
+
+- you do not trigger them manually
+- you do not confirm them every day
+- you only look when one of these happens:
+  - `cron-job.org` sends a failure email
+  - your local dashboard sync still shows an old sample date
+  - GitHub Actions shows a failed `workflow_dispatch` run
+
+Recommended safety switches in `cron-job.org`:
+
+- enable failure email notifications
+- keep execution history enabled
+- keep the response body visible so you can inspect the GitHub API response
+
+If you want a quick health check without opening GitHub every day, the simplest routine is:
+
+1. open the local dashboard
+2. click `同步最新云端结果`
+3. confirm the latest sample date updated as expected
+
+That is enough for normal use.
+
 ## What Gets Synced Back
 
 For `workflow_dispatch` runs in these modes:
