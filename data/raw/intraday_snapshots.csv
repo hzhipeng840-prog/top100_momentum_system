@@ -1,2 +1,6 @@
 ﻿snapshot_time,capture_type,code,name,last_price,open,prev_close,current_return_pct,day_high_so_far,day_low_so_far,volume_so_far,amount_so_far,turnover_pct,volume_ratio,source
 2026-05-06 14:30:00,intraday_1430,000062,深圳华强,36.88,37.99,36.92,-0.11,40.13,36.22,1284890.0,4882508904.8,12.3,1.1,eastmoney.single_stock_quote
+2026-05-07 15:00:00,post_close,000815,美利云,22.13,21.4,20.92,5.78,23.0,21.1,2220246.0,4948530905.03,31.93,2.6,eastmoney.single_stock_quote
+2026-05-07 15:00:00,post_close,000818,航锦科技,18.54,17.69,16.85,10.03,18.54,17.5,571038.0,1038835262.88,8.68,1.05,eastmoney.single_stock_quote
+2026-05-07 15:00:00,post_close,002580,圣阳股份,29.91,29.4,29.78,0.44,31.19,29.2,1229116.0,3718609670.69,27.17,0.95,eastmoney.single_stock_quote
+2026-05-07 15:00:00,post_close,002709,天赐材料,62.8,63.66,64.0,-1.88,63.7,61.0,1504038.0,9353575276.65,9.97,0.89,eastmoney.single_stock_quote
