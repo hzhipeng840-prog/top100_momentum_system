@@ -9,7 +9,7 @@ from src.followups import build_followups, save_followups
 from src.intraday_fetcher import warm_intraday_cache
 from src.market_regime import build_market_regime, save_market_regime, warm_market_index_cache
 from src.native_fetcher import run_native_fetch, warm_stock_price_cache
-from src.paths import ensure_layout, fast_strategy_history_csv_for, followups_csv_for
+from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for, followups_csv_for
 from src.reports import build_reports
 from src.settings import load_settings
 from src.signals import build_signals, save_signals
@@ -171,6 +171,32 @@ def _resolve_strategy_versions(settings: dict) -> tuple[list[str], str]:
     return versions, default_version
 
 
+def _merge_feature_history(existing_feature_df: pd.DataFrame, fresh_feature_df: pd.DataFrame) -> pd.DataFrame:
+    if existing_feature_df.empty:
+        return fresh_feature_df.copy()
+    if fresh_feature_df.empty:
+        return existing_feature_df.copy()
+
+    combined = pd.concat([existing_feature_df.copy(), fresh_feature_df.copy()], ignore_index=True)
+    if "signal_date" not in combined.columns or "code" not in combined.columns:
+        return fresh_feature_df.copy()
+
+    combined["signal_date"] = pd.to_datetime(combined["signal_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    combined["code"] = combined["code"].astype(str).map(normalize_code)
+    if "snapshot_time" in combined.columns:
+        combined["snapshot_time"] = combined["snapshot_time"].fillna("").astype(str)
+    else:
+        combined["snapshot_time"] = ""
+    if "rank" in combined.columns:
+        combined["rank"] = pd.to_numeric(combined["rank"], errors="coerce")
+
+    combined = combined.dropna(subset=["signal_date"]).copy()
+    combined = combined[combined["code"].ne("")].copy()
+    combined = combined.sort_values(["signal_date", "snapshot_time", "rank"], na_position="last")
+    combined = combined.drop_duplicates(["signal_date", "code"], keep="last")
+    return combined.sort_values(["signal_date", "rank"], na_position="last").reset_index(drop=True)
+
+
 def _latest_popularity_slice(capture_type: str | None = None) -> pd.DataFrame:
     popularity_df = load_popularity()
     if popularity_df.empty or "signal_date" not in popularity_df.columns:
@@ -271,11 +297,21 @@ def run_pipeline(
     popularity_df = load_popularity()
     strategy_results: dict[str, dict[str, object]] = {}
     feature_frames: dict[str, pd.DataFrame] = {}
+    existing_feature_history = read_csv_safely(FEATURES_CSV)
+    shared_feature_history = pd.DataFrame()
     for strategy_version in strategy_versions:
         feature_df = build_daily_features(
             popularity_df=popularity_df,
             strategy_version=strategy_version,
         )
+        if strategy_version == default_strategy_version:
+            feature_df = _merge_feature_history(existing_feature_history, feature_df)
+            shared_feature_history = feature_df.copy()
+        elif not shared_feature_history.empty:
+            current_date_count = feature_df["signal_date"].nunique() if not feature_df.empty and "signal_date" in feature_df.columns else 0
+            shared_date_count = shared_feature_history["signal_date"].nunique() if "signal_date" in shared_feature_history.columns else 0
+            if current_date_count < shared_date_count:
+                feature_df = shared_feature_history.copy()
         feature_frames[strategy_version] = feature_df
         strategy_results[strategy_version] = {
             "features": {

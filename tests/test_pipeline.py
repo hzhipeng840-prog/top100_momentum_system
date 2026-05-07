@@ -9,6 +9,26 @@ from src import pipeline
 
 
 class PipelineFollowupRefreshTest(unittest.TestCase):
+    def test_merge_feature_history_prefers_latest_rows_and_keeps_older_dates(self) -> None:
+        existing = pd.DataFrame(
+            [
+                {"signal_date": "2026-05-05", "code": "600001", "rank": 3, "snapshot_time": "2026-05-05 15:00:00", "close": 10},
+                {"signal_date": "2026-05-06", "code": "600001", "rank": 4, "snapshot_time": "2026-05-06 14:30:00", "close": 11},
+            ]
+        )
+        fresh = pd.DataFrame(
+            [
+                {"signal_date": "2026-05-06", "code": "600001", "rank": 1, "snapshot_time": "2026-05-06 15:00:00", "close": 12},
+            ]
+        )
+
+        merged = pipeline._merge_feature_history(existing, fresh)
+
+        self.assertEqual(merged["signal_date"].nunique(), 2)
+        latest_row = merged[merged["signal_date"].eq("2026-05-06")].iloc[0]
+        self.assertEqual(str(latest_row["snapshot_time"]), "2026-05-06 15:00:00")
+        self.assertEqual(int(latest_row["rank"]), 1)
+
     @patch("src.pipeline.read_csv_safely")
     def test_followup_refresh_codes_include_unsettled_non_pushed_samples(self, mock_read_csv_safely) -> None:
         history_df = pd.DataFrame([{"code": "600001"}])
@@ -220,6 +240,68 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_bars=False,
         )
         self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
+
+    @patch("src.pipeline.build_reports", return_value={})
+    @patch("src.pipeline.save_followups")
+    @patch("src.pipeline.build_followups", return_value=pd.DataFrame())
+    @patch("src.pipeline.save_signals")
+    @patch("src.pipeline.build_signals", return_value=pd.DataFrame())
+    @patch("src.pipeline.save_market_regime")
+    @patch("src.pipeline.build_market_regime", return_value=pd.DataFrame())
+    @patch("src.pipeline.save_daily_features")
+    @patch("src.pipeline.build_daily_features", return_value=pd.DataFrame([{"signal_date": "2026-05-06", "code": "600001", "rank": 1, "snapshot_time": "2026-05-06 15:00:00"}]))
+    @patch("src.pipeline.load_popularity", return_value=pd.DataFrame([{"signal_date": "2026-05-06", "rank": 1, "code": "600001"}]))
+    @patch("src.pipeline.read_csv_safely")
+    @patch(
+        "src.pipeline.load_settings",
+        return_value={
+            "strategy_versions": ["v1", "v2", "v3"],
+            "default_strategy_version": "v1",
+            "default_capture_type": "post_close",
+            "signal_min_score": 60,
+            "latest_push_limit": None,
+            "strong_return_threshold_pct": 15,
+            "followup_days": [1, 3, 5, 10],
+            "refresh_price_cache": False,
+            "refresh_market_cache": False,
+            "refresh_intraday_cache": False,
+        },
+    )
+    def test_run_pipeline_reuses_existing_feature_history_when_popularity_is_sparse(
+        self,
+        _mock_load_settings,
+        mock_read_csv_safely,
+        _mock_load_popularity,
+        _mock_build_daily_features,
+        mock_save_daily_features,
+        _mock_build_market_regime,
+        _mock_save_market_regime,
+        mock_build_signals,
+        _mock_save_signals,
+        _mock_build_followups,
+        _mock_save_followups,
+        _mock_build_reports,
+    ) -> None:
+        existing_feature_history = pd.DataFrame(
+            [
+                {"signal_date": "2026-05-05", "code": "600001", "rank": 2, "snapshot_time": "2026-05-05 15:00:00"},
+                {"signal_date": "2026-05-06", "code": "600002", "rank": 3, "snapshot_time": "2026-05-06 15:00:00"},
+            ]
+        )
+
+        def fake_read(path):
+            return existing_feature_history if str(path).endswith("daily_features.csv") else pd.DataFrame()
+
+        mock_read_csv_safely.side_effect = fake_read
+
+        pipeline.run_pipeline(native_fetch=False)
+
+        saved_feature_df = mock_save_daily_features.call_args.args[0]
+        self.assertEqual(saved_feature_df["signal_date"].nunique(), 2)
+        first_signal_features = mock_build_signals.call_args_list[0].args[0]
+        third_signal_features = mock_build_signals.call_args_list[2].args[0]
+        self.assertEqual(first_signal_features["signal_date"].nunique(), 2)
+        self.assertEqual(third_signal_features["signal_date"].nunique(), 2)
 
 
 if __name__ == "__main__":
