@@ -1,72 +1,148 @@
-# GitHub Actions Workflow
+# GitHub Actions and External Cron
 
-This project now includes a GitHub Actions workflow at `.github/workflows/top100_pipeline.yml`.
+This project now uses GitHub Actions for:
 
-## Supported Modes
+- `push -> tests`
+- manual `workflow_dispatch`
+- cloud execution after an external scheduler calls `workflow_dispatch`
+
+It no longer relies on GitHub's own `schedule` trigger for time-sensitive A-share capture windows.
+
+## Supported Workflow Modes
 
 - `full`
-  Runs the regular post-close pipeline with `python daily_job.py --capture-type post_close`.
+  Runs the post-close pipeline with `python daily_job.py --mode full`.
 - `tail_capture`
-  Runs the 14:30 intraday pipeline with an auto-generated `--snapshot-time` in `Asia/Shanghai`.
+  Runs the 14:30 intraday pipeline with an explicit Shanghai snapshot timestamp.
 - `recompute`
-  Rebuilds local outputs from existing cached data with `python daily_job.py --no-fetch`.
+  Rebuilds local outputs from existing cached data without fetching new market data.
 - `backtest`
-  Rebuilds the formal backtest summary service outputs from existing `signals` and `followups` without fetching new market data.
+  Rebuilds formal backtest summary outputs from existing `signals` and `followups`.
 - `tests`
-  Runs the unittest suite with `python -m unittest discover -s tests -v`.
+  Runs `python -m unittest discover -s tests -v`.
 
-## Default Schedule
+## Why External Cron
 
-- Weekdays at 14:30 China time: `tail_capture`
-- Weekdays at 17:10 China time: `full`
+GitHub's `schedule` trigger is acceptable for low-precision daily jobs, but it is not reliable enough for:
 
-The workflow uses UTC cron values because GitHub Actions schedules are always defined in UTC:
+- 14:30 A-share tail capture
+- 17:10 post-close jobs that should stay close to the market window
 
-- `30 6 * * 1-5` -> 14:30 Asia/Shanghai
-- `10 9 * * 1-5` -> 17:10 Asia/Shanghai
+This repository keeps GitHub Actions as the execution environment, but moves the timing responsibility to an external scheduler.
 
-## What Gets Saved
+## Workflow Dispatch Endpoint
 
-Each run uploads a workflow artifact that includes:
+Workflow file:
 
-- `workflow_artifacts/workflow_summary.md`
-- workflow logs
-- `data/reports/`
-- versioned `signals`, `followups`, and `fast_strategy_history` outputs
-- `market_regime.csv`
-- `popularity_top100.csv`
-- `intraday_snapshots.csv`
+- `.github/workflows/top100_pipeline.yml`
 
-This keeps the workflow stateless and safe by default. The workflow does not commit generated data back into the repository automatically.
+Dispatch target:
 
-The workflow now also syncs generated outputs back to `main` for these modes:
+- `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
+
+## Token Requirements
+
+Use one of these:
+
+- Fine-grained personal access token with repository `Actions: Read and write`
+- Classic personal access token with `repo` scope
+
+Store it outside the repository as an environment variable:
+
+- `GITHUB_TOKEN`
+
+## Dispatch Script
+
+This repository includes a ready-to-use helper:
+
+- `dispatch_workflow.py`
+
+Examples:
+
+```bash
+python dispatch_workflow.py --mode tail_capture
+python dispatch_workflow.py --mode full
+python dispatch_workflow.py --mode backtest
+```
+
+Optional flags:
+
+- `--force-refresh-prices`
+- `--repository`
+- `--workflow-file`
+- `--ref`
+- `--token-env`
+
+## Direct API Example
+
+Tail capture:
+
+```bash
+curl -L -X POST ^
+  -H "Accept: application/vnd.github+json" ^
+  -H "Authorization: Bearer %GITHUB_TOKEN%" ^
+  -H "X-GitHub-Api-Version: 2022-11-28" ^
+  https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches ^
+  -d "{\"ref\":\"main\",\"inputs\":{\"mode\":\"tail_capture\",\"force_refresh_prices\":false}}"
+```
+
+Full run:
+
+```bash
+curl -L -X POST ^
+  -H "Accept: application/vnd.github+json" ^
+  -H "Authorization: Bearer %GITHUB_TOKEN%" ^
+  -H "X-GitHub-Api-Version: 2022-11-28" ^
+  https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches ^
+  -d "{\"ref\":\"main\",\"inputs\":{\"mode\":\"full\",\"force_refresh_prices\":false}}"
+```
+
+## Example External Schedules
+
+### Linux or VPS cron
+
+```cron
+30 14 * * 1-5 cd /opt/top100_momentum_system && /usr/bin/python3 dispatch_workflow.py --mode tail_capture
+10 17 * * 1-5 cd /opt/top100_momentum_system && /usr/bin/python3 dispatch_workflow.py --mode full
+```
+
+All times above should be interpreted in the machine's local timezone. If the server is not in China, align the cron expression to `Asia/Shanghai`.
+
+### Third-party cron service
+
+If the service supports custom headers and JSON bodies, call the GitHub REST endpoint directly with:
+
+- `Authorization: Bearer <token>`
+- `Accept: application/vnd.github+json`
+- `X-GitHub-Api-Version: 2022-11-28`
+
+Payload examples are shown above.
+
+## What Gets Synced Back
+
+For `workflow_dispatch` runs in these modes:
 
 - `full`
 - `tail_capture`
 - `recompute`
 - `backtest`
 
-It does **not** sync outputs for `tests`.
-
-To avoid endless workflow loops, the `push` trigger ignores report-only commits under:
+the workflow commits generated outputs back to `main`, including:
 
 - `data/raw/popularity_top100.csv`
 - `data/raw/intraday_snapshots.csv`
-- `data/processed/signals*.csv`
-- `data/processed/followups*.csv`
-- `data/processed/fast_strategy_history*.csv`
-- `data/processed/market_regime.csv`
+- `data/processed/daily_features.csv`
+- versioned `signals`, `followups`, and `fast_strategy_history`
+- `market_regime.csv`
 - `data/reports/*.csv`
 
-## Recommended Usage
+It does not sync outputs for `tests`.
 
-If you want a cloud-based replacement for local automations:
+## Recommended Operating Model
 
-1. Push this project to GitHub.
-2. Open the Actions tab and enable workflows.
-3. Use `workflow_dispatch` to test `tail_capture` and `full` manually.
-4. After validation, rely on the default schedule.
+Use GitHub Actions for compute, and an external scheduler for timing:
 
-## Important Note
-
-Artifacts are still stored on GitHub Actions, but the main daily outputs are now also committed back to `main`. Your local Streamlit dashboard can use them after a normal `git pull`.
+1. External cron triggers `workflow_dispatch`
+2. GitHub Actions executes the job in the cloud
+3. Generated outputs sync back to `main`
+4. Your local dashboard pulls the latest results with `git pull`
