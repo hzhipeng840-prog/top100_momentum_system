@@ -32,8 +32,8 @@ on:
         default: false
         type: boolean
   schedule:
-    - cron: "30 6 * * 1-5"
-    - cron: "10 9 * * 1-5"
+    - cron: "30-55/5 6 * * 1-5"
+    - cron: "10-30/5 9 * * 1-5"
 
 concurrency:
   group: top100-momentum-pipeline
@@ -76,10 +76,10 @@ jobs:
             force_refresh="false"
           elif [ "${{ github.event_name }}" = "schedule" ]; then
             case "${{ github.event.schedule }}" in
-              "30 6 * * 1-5")
+              "30-55/5 6 * * 1-5")
                 mode="tail_capture"
                 ;;
-              "10 9 * * 1-5")
+              "10-30/5 9 * * 1-5")
                 mode="full"
                 ;;
               *)
@@ -96,10 +96,47 @@ jobs:
           echo "force_refresh=${force_refresh}" >> "$GITHUB_OUTPUT"
           echo "sync_back=${sync_back}" >> "$GITHUB_OUTPUT"
 
+      - name: Gate scheduled run to expected capture window
+        id: capture_window
+        shell: bash
+        run: |
+          should_run="true"
+          skip_reason=""
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            mode="${{ steps.resolve.outputs.mode }}"
+            if [ "$mode" = "tail_capture" ]; then
+              capture_type="intraday_1430"
+            else
+              capture_type="post_close"
+            fi
+
+            if ! python -c "from src.trading_calendar import is_within_capture_window; import sys; sys.exit(0 if is_within_capture_window('${capture_type}') else 1)"; then
+              should_run="false"
+              skip_reason="outside_expected_capture_window"
+            fi
+          fi
+
+          echo "should_run=${should_run}" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=${skip_reason}" >> "$GITHUB_OUTPUT"
+
       - name: Create artifact directory
         run: mkdir -p workflow_artifacts/logs
 
+      - name: Write skipped schedule summary
+        if: steps.capture_window.outputs.should_run != 'true'
+        shell: bash
+        run: |
+          cat > workflow_artifacts/workflow_summary.md <<EOF
+          # Top100 Workflow Summary
+
+          - Status: \`skipped\`
+          - Mode: \`${{ steps.resolve.outputs.mode }}\`
+          - Reason: \`${{ steps.capture_window.outputs.skip_reason }}\`
+          - Current Time (Asia/Shanghai): \`$(TZ=Asia/Shanghai date '+%Y-%m-%dT%H:%M:%S%z')\`
+          EOF
+
       - name: Run selected task
+        if: steps.capture_window.outputs.should_run == 'true'
         shell: bash
         run: |
           cmd=(python workflow_job.py --mode "${{ steps.resolve.outputs.mode }}" --summary-path workflow_artifacts/workflow_summary.md --log-dir workflow_artifacts/logs)
@@ -109,7 +146,7 @@ jobs:
           "${cmd[@]}"
 
       - name: Commit generated outputs back to repository
-        if: steps.resolve.outputs.sync_back == 'true'
+        if: steps.resolve.outputs.sync_back == 'true' && steps.capture_window.outputs.should_run == 'true'
         shell: bash
         run: |
           shopt -s nullglob

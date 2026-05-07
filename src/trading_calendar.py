@@ -17,6 +17,12 @@ CAPTURE_READY_TIMES = {
     "intraday_1430": (14, 30),
     "post_close": (16, 0),
 }
+CAPTURE_WINDOW_GRACE_MINUTES = {
+    "intraday_0935": 15,
+    "intraday_1030": 20,
+    "intraday_1430": 25,
+    "post_close": 90,
+}
 CAPTURE_TYPE_NAMES = {
     "intraday_0935": "早盘 9:35",
     "intraday_1030": "早盘 10:30",
@@ -131,3 +137,16 @@ def should_skip_market_fetch(capture_type: str, now: datetime | None = None) -> 
         "reason": "",
         "expected_signal_date": expected_signal_date,
     }
+
+
+def is_within_capture_window(
+    capture_type: str,
+    now: datetime | None = None,
+    grace_minutes: int | None = None,
+) -> bool:
+    current_time = current_market_time(now)
+    ready_hour, ready_minute = CAPTURE_READY_TIMES.get(capture_type, CAPTURE_READY_TIMES["post_close"])
+    ready_minutes = ready_hour * 60 + ready_minute
+    current_minutes = current_time.hour * 60 + current_time.minute
+    allowed_grace = int(grace_minutes) if grace_minutes is not None else int(CAPTURE_WINDOW_GRACE_MINUTES.get(capture_type, 20))
+    return ready_minutes <= current_minutes <= ready_minutes + allowed_grace
