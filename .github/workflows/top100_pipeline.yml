@@ -32,6 +32,7 @@ on:
         default: false
         type: boolean
   schedule:
+    - cron: "57 7 * * *"
     - cron: "30-55/5 6 * * 1-5"
     - cron: "10-30/5 9 * * 1-5"
 
@@ -76,6 +77,9 @@ jobs:
             force_refresh="false"
           elif [ "${{ github.event_name }}" = "schedule" ]; then
             case "${{ github.event.schedule }}" in
+              "57 7 * * *")
+                mode="tests"
+                ;;
               "30-55/5 6 * * 1-5")
                 mode="tail_capture"
                 ;;
@@ -104,13 +108,15 @@ jobs:
           skip_reason=""
           if [ "${{ github.event_name }}" = "schedule" ]; then
             mode="${{ steps.resolve.outputs.mode }}"
-            if [ "$mode" = "tail_capture" ]; then
+            if [ "$mode" = "tests" ]; then
+              should_run="true"
+            elif [ "$mode" = "tail_capture" ]; then
               capture_type="intraday_1430"
             else
               capture_type="post_close"
             fi
 
-            if ! python -c "from src.trading_calendar import is_within_capture_window; import sys; sys.exit(0 if is_within_capture_window('${capture_type}') else 1)"; then
+            if [ "$mode" != "tests" ] && ! python -c "from src.trading_calendar import is_within_capture_window; import sys; sys.exit(0 if is_within_capture_window('${capture_type}') else 1)"; then
               should_run="false"
               skip_reason="outside_expected_capture_window"
             fi
