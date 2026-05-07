@@ -1664,7 +1664,7 @@ if active_view == "今日决策":
                     "候选池命中": st.column_config.TextColumn("候选池命中", width="small"),
                     "是否优先关注": st.column_config.TextColumn("是否优先关注", width="small"),
                 },
-                key=f"latest_push_execution_editor_{execution_scope}",
+                key=f"latest_push_execution_editor_{execution_scope}_{st.session_state.get(f'latest_push_execution_editor_reset_nonce_{execution_scope}', 0)}",
             )
             checked_indices = set(edited_execution_df.index[edited_execution_df["查看"].fillna(False)])
             previous_checked_indices = st.session_state.get("latest_push_checked_indices", set())
@@ -1679,95 +1679,124 @@ if active_view == "今日决策":
                 detail_row = build_detail_row(push_row, fast_strategy_df)
                 default_detail_date = str(detail_row.get("strategy_date", detail_row.get("signal_date", latest_date)))
                 render_stock_detail_dialog(detail_row, default_trade_date=default_detail_date)
+                st.session_state[f"latest_push_execution_editor_reset_nonce_{execution_scope}"] = (
+                    int(st.session_state.get(f"latest_push_execution_editor_reset_nonce_{execution_scope}", 0)) + 1
+                )
+                st.session_state["latest_push_checked_indices"] = set()
 
 elif active_view == "历史审查":
-    st.subheader("历史审查")
-    st.caption("单独回看快策略结算结果，和今日执行页分开，避免塞在同一个页签里。")
-    if fast_strategy_audit_df.empty:
-        st.info("暂无审查记录。当前策略已记录后，等待后续行情更新。")
-    else:
-        audit_dates = sorted(fast_strategy_audit_df["strategy_date"].dropna().astype(str).unique(), reverse=True)
-        selected_audit_date = st.selectbox("审查哪一天的策略", options=["全部"] + audit_dates, index=0)
-        audit_scope = st.selectbox("审查范围", options=["全部"] + sorted(fast_strategy_audit_df["audit_scope"].dropna().astype(str).unique()), index=0)
-        audit_sort = st.selectbox("排序方式", options=["复盘优先", "策略分最高", "至今涨幅最高", "人气排名靠前"], index=0)
-        audit_df = fast_strategy_audit_df.copy()
-        if selected_audit_date != "全部":
-            audit_df = audit_df[audit_df["strategy_date"].astype(str).eq(selected_audit_date)]
-        if audit_scope != "全部":
-            audit_df = audit_df[audit_df["audit_scope"].astype(str).eq(audit_scope)]
-        if not audit_df.empty:
-            audit_df = audit_df.copy()
-            audit_df["fast_score"] = pd.to_numeric(audit_df.get("fast_score"), errors="coerce")
-            audit_df["latest_return_pct"] = pd.to_numeric(audit_df.get("latest_return_pct"), errors="coerce")
-            audit_df["rank"] = pd.to_numeric(audit_df.get("rank"), errors="coerce")
-            if audit_sort == "策略分最高":
-                audit_df = audit_df.sort_values(["strategy_date", "fast_score", "rank"], ascending=[False, False, True], na_position="last")
-            elif audit_sort == "至今涨幅最高":
-                audit_df = audit_df.sort_values(["strategy_date", "latest_return_pct", "fast_score", "rank"], ascending=[False, False, False, True], na_position="last")
-            elif audit_sort == "人气排名靠前":
-                audit_df = audit_df.sort_values(["strategy_date", "rank", "fast_score"], ascending=[False, True, False], na_position="last")
-        display_table(
-            audit_df,
-            columns=[
-                "strategy_date",
-                "audit_status",
-                "audit_scope",
-                "audit_result",
-                "lesson_type",
-                "rank",
-                "code",
-                "name",
-                "fast_level",
-                "fast_score",
-                "observed_days",
-                "tail_next_open_pct",
-                "tail_next_close_pct",
-                "latest_return_pct",
-                "return_3d_pct",
-                "return_5d_pct",
-                "max_gain_5d_pct",
-                "lesson_note",
-                "reasons",
-                "risks",
-            ],
-            rename={
-                "strategy_date": "策略日",
-                "audit_status": "审查状态",
-                "audit_scope": "审查范围",
-                "audit_result": "审查结果",
-                "lesson_type": "反哺标签",
-                "rank": "人气排名",
-                "code": "代码",
-                "name": "名称",
-                "fast_level": "快策略层级",
-                "fast_score": "快策略分",
-                "observed_days": "已观察天数",
-                "tail_next_open_pct": "次日开盘收益%",
-                "tail_next_close_pct": "次日收盘收益%",
-                "latest_return_pct": "至今涨跌%",
-                "return_3d_pct": "3日收益%",
-                "return_5d_pct": "5日收益%",
-                "max_gain_5d_pct": "5日最大上涨%",
-                "lesson_note": "反哺记录",
-                "reasons": "当时原因",
-                "risks": "当时风险",
-            },
-            column_config={
-                "审查结果": st.column_config.TextColumn(
-                    "审查结果",
-                    help="走势结论：根据已观察天数和当前后验收益判断这条样本到目前表现如何。",
-                ),
-                "反哺标签": st.column_config.TextColumn(
-                    "反哺标签",
-                    help="学习分桶：用于后续规则复盘和权重调整，不等同于走势结论。",
-                ),
-                "快策略分": st.column_config.TextColumn(
-                    "快策略分",
-                    help="反哺样本，不参与快策略打分。",
+        st.subheader("历史审查")
+        st.caption("单独回看快策略结算结果，和今日执行页分开，避免塞在同一个页签里。")
+        if fast_strategy_audit_df.empty:
+            st.info("暂无审查记录。当前策略已记录后，等待后续行情更新。")
+        else:
+            audit_dates = sorted(fast_strategy_audit_df["strategy_date"].dropna().astype(str).unique(), reverse=True)
+            audit_filter_cols = st.columns(3, gap="small")
+            with audit_filter_cols[0]:
+                st.caption("审查哪一天的策略")
+                selected_audit_date = st.selectbox(
+                    "审查哪一天的策略",
+                    options=["全部"] + audit_dates,
+                    index=0,
+                    label_visibility="collapsed",
+                    key="audit_selected_date",
                 )
-            },
-            limit=300,
-        )
+            with audit_filter_cols[1]:
+                st.caption("审查范围")
+                audit_scope = st.selectbox(
+                    "审查范围",
+                    options=["全部"] + sorted(fast_strategy_audit_df["audit_scope"].dropna().astype(str).unique()),
+                    index=0,
+                    label_visibility="collapsed",
+                    key="audit_scope",
+                )
+            with audit_filter_cols[2]:
+                st.caption("排序方式")
+                audit_sort = st.selectbox(
+                    "排序方式",
+                    options=["复盘优先", "策略分最高", "至今涨幅最高", "人气排名靠前"],
+                    index=0,
+                    label_visibility="collapsed",
+                    key="audit_sort",
+                )
+            audit_df = fast_strategy_audit_df.copy()
+            if selected_audit_date != "全部":
+                audit_df = audit_df[audit_df["strategy_date"].astype(str).eq(selected_audit_date)]
+            if audit_scope != "全部":
+                audit_df = audit_df[audit_df["audit_scope"].astype(str).eq(audit_scope)]
+            if not audit_df.empty:
+                audit_df = audit_df.copy()
+                audit_df["fast_score"] = pd.to_numeric(audit_df.get("fast_score"), errors="coerce")
+                audit_df["latest_return_pct"] = pd.to_numeric(audit_df.get("latest_return_pct"), errors="coerce")
+                audit_df["rank"] = pd.to_numeric(audit_df.get("rank"), errors="coerce")
+                if audit_sort == "策略分最高":
+                    audit_df = audit_df.sort_values(["strategy_date", "fast_score", "rank"], ascending=[False, False, True], na_position="last")
+                elif audit_sort == "至今涨幅最高":
+                    audit_df = audit_df.sort_values(["strategy_date", "latest_return_pct", "fast_score", "rank"], ascending=[False, False, False, True], na_position="last")
+                elif audit_sort == "人气排名靠前":
+                    audit_df = audit_df.sort_values(["strategy_date", "rank", "fast_score"], ascending=[False, True, False], na_position="last")
+            display_table(
+                audit_df,
+                columns=[
+                    "strategy_date",
+                    "audit_status",
+                    "audit_scope",
+                    "audit_result",
+                    "lesson_type",
+                    "rank",
+                    "code",
+                    "name",
+                    "fast_level",
+                    "fast_score",
+                    "observed_days",
+                    "tail_next_open_pct",
+                    "tail_next_close_pct",
+                    "latest_return_pct",
+                    "return_3d_pct",
+                    "return_5d_pct",
+                    "max_gain_5d_pct",
+                    "lesson_note",
+                    "reasons",
+                    "risks",
+                ],
+                rename={
+                    "strategy_date": "策略日",
+                    "audit_status": "审查状态",
+                    "audit_scope": "审查范围",
+                    "audit_result": "审查结果",
+                    "lesson_type": "反哺标签",
+                    "rank": "人气排名",
+                    "code": "代码",
+                    "name": "名称",
+                    "fast_level": "快策略层级",
+                    "fast_score": "快策略分",
+                    "observed_days": "已观察天数",
+                    "tail_next_open_pct": "次日开盘收益%",
+                    "tail_next_close_pct": "次日收盘收益%",
+                    "latest_return_pct": "至今涨跌%",
+                    "return_3d_pct": "3日收益%",
+                    "return_5d_pct": "5日收益%",
+                    "max_gain_5d_pct": "5日最大上涨%",
+                    "lesson_note": "反哺记录",
+                    "reasons": "当时原因",
+                    "risks": "当时风险",
+                },
+                column_config={
+                    "审查结果": st.column_config.TextColumn(
+                        "审查结果",
+                        help="走势结论：根据已观察天数和当前后验收益判断这条样本到目前表现如何。",
+                    ),
+                    "反哺标签": st.column_config.TextColumn(
+                        "反哺标签",
+                        help="学习分桶：用于后续规则复盘和权重调整，不等同于走势结论。",
+                    ),
+                    "快策略分": st.column_config.TextColumn(
+                        "快策略分",
+                        help="反哺样本，不参与快策略打分。",
+                    )
+                },
+                limit=300,
+            )
 
 elif active_view == "样本追踪":
     st.subheader("样本追踪")
