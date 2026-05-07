@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+import pandas as pd
+
 from src.paths import followups_csv_for, signals_csv_for
-from src.signals import score_signal
+from src.signals import build_signals, score_signal
 from src.strategy_profiles import (
     strategy_capture_priority,
     strategy_default_metric_label,

@@ -26,11 +26,11 @@ CAPTURE_WINDOW_GRACE_MINUTES = {
     "post_close": 90,
 }
 CAPTURE_TYPE_NAMES = {
-    "intraday_0935": "?? 9:35",
-    "intraday_0950": "?? 9:50",
-    "intraday_1030": "?? 10:30",
-    "intraday_1430": "?? 14:30",
-    "post_close": "???",
+    "intraday_0935": "早盘 9:35",
+    "intraday_0950": "早盘 9:50",
+    "intraday_1030": "早盘 10:30",
+    "intraday_1430": "尾盘 14:30",
+    "post_close": "收盘后",
 }
 
 

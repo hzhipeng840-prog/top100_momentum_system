@@ -322,6 +322,86 @@ def _apply_v4_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) 
     return adjustment
 
 
+def _market_regime_adjustment(row: pd.Series, reasons: list[str], risks: list[str], strategy_version: str) -> float:
+    market_regime = str(row.get("market_regime") or "").strip()
+    if market_regime in {"", "未知"}:
+        return 0.0
+
+    relative_1d = parse_number(row.get("relative_1d_pct"))
+    relative_5d = parse_number(row.get("relative_5d_pct"))
+    market_1d = parse_number(row.get("market_1d_pct"))
+    market_5d = parse_number(row.get("market_5d_pct"))
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    rank = parse_number(row.get("rank"))
+    consecutive_days = parse_number(row.get("consecutive_days"))
+    one_word_like = _as_bool(row.get("one_word_like"))
+
+    version_weight = {
+        "v1": 0.75,
+        "v2": 1.0,
+        "v3": 1.15,
+        "v4": 1.1,
+    }.get(strategy_version, 1.0)
+
+    adjustment = 0.0
+    relative_strength = False
+    relative_weakness = False
+
+    if relative_1d is not None or relative_5d is not None:
+        relative_strength = (
+            (relative_1d is not None and relative_1d >= 1.0)
+            or (relative_5d is not None and relative_5d >= 2.0)
+        )
+        relative_weakness = (
+            (relative_1d is not None and relative_1d <= -1.0)
+            or (relative_5d is not None and relative_5d <= -2.0)
+        )
+
+    if market_regime == "强势":
+        if relative_strength:
+            adjustment += 4.0 * version_weight
+            _add_reason(reasons, "市场强势且个股相对强势")
+        elif relative_weakness:
+            adjustment -= 3.0 * version_weight
+            _add_reason(risks, "强势市里个股相对走弱")
+    elif market_regime == "震荡":
+        if relative_strength:
+            adjustment += 3.0 * version_weight
+            _add_reason(reasons, "震荡市里保持相对强势")
+        elif relative_weakness:
+            adjustment -= 6.0 * version_weight
+            _add_reason(risks, "震荡市里相对走弱")
+
+        if (
+            day_return is not None
+            and day_return > 0
+            and close_position is not None
+            and close_position >= 0.75
+            and (market_1d is None or market_1d <= 1.0)
+            and (market_5d is None or market_5d <= 1.5)
+        ):
+            adjustment += 1.5 * version_weight
+            _add_reason(reasons, "震荡市里承接未失控")
+    elif market_regime == "弱势":
+        if relative_strength and close_position is not None and close_position >= 0.75 and not one_word_like:
+            adjustment += 2.0 * version_weight
+            _add_reason(reasons, "弱市中个股相对抗跌")
+        else:
+            adjustment -= 8.0 * version_weight
+            _add_reason(risks, "弱市先收缩执行")
+
+    if rank is not None and rank > 50 and market_regime in {"震荡", "弱势"}:
+        adjustment -= 1.5 * version_weight
+        _add_reason(risks, "后段人气股在偏弱环境里更谨慎")
+
+    if consecutive_days is not None and consecutive_days >= 5 and market_regime == "弱势":
+        adjustment -= 2.0 * version_weight
+        _add_reason(risks, "弱市里的长连榜样本优先降权")
+
+    return adjustment
+
+
 def score_signal(
     row: pd.Series,
     min_score: float = 60,
@@ -459,6 +539,8 @@ def score_signal(
             score += 8
             _add_reason(reasons, "首次上榜强势提权")
 
+    score += _market_regime_adjustment(row, reasons=reasons, risks=risks, strategy_version=strategy_version)
+
     if strategy_version in {"v1", "v2", "v3", "v4"}:
         score += _apply_v2_bonus_rules(row, reasons=reasons)
     if strategy_version == "v3":
@@ -496,10 +578,10 @@ def build_signals(
     if df.empty:
         return pd.DataFrame()
 
+    df = attach_market_regime(df, market_regime_df=market_regime_df)
     scored = pd.DataFrame([score_signal(row, min_score=min_score, strategy_version=strategy_version) for _, row in df.iterrows()])
     result = pd.concat([df.reset_index(drop=True), scored], axis=1)
     result["strategy_version"] = strategy_version
-    result = attach_market_regime(result, market_regime_df=market_regime_df)
     return result.sort_values(["signal_date", "emotion_score", "rank"], ascending=[True, False, True]).reset_index(drop=True)
 
 

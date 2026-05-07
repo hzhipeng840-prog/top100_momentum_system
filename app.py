@@ -1952,7 +1952,7 @@ else:
         )
     ]
 
-    metric_options = [label for label in RETURN_METRIC_SPECS.keys() if label != "10???"]
+    metric_options = [label for label in RETURN_METRIC_SPECS.keys() if label != "10日收益"]
     preferred_metric = strategy_default_metric_label(selected_strategy_version)
     default_metric = preferred_metric if preferred_metric in metric_options else ("5日收益" if "5日收益" in metric_options else metric_options[0])
     selected_perf_metric = default_metric
