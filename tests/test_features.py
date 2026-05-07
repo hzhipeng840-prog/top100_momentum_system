@@ -115,6 +115,60 @@ class FeatureSelectionTest(unittest.TestCase):
         self.assertAlmostEqual(float(row["day_return_pct"]), 10.0, places=6)
         self.assertEqual(int(row["price_lag_days"]), 0)
 
+    @patch("src.features.load_intraday_snapshots")
+    @patch("src.features.load_price_data")
+    def test_v3_intraday_features_tolerate_missing_price_date_column(
+        self,
+        mock_load_price_data,
+        mock_load_intraday_snapshots,
+    ) -> None:
+        popularity_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-28",
+                    "rank": 1,
+                    "code": "600001",
+                    "name": "测试股",
+                    "popularity_score": 100,
+                    "source": "10jqka",
+                    "capture_type": "intraday_1430",
+                    "snapshot_time": "2026-04-28 14:30:00",
+                }
+            ]
+        )
+        mock_load_intraday_snapshots.return_value = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-28",
+                    "snapshot_time": "2026-04-28 14:30:00",
+                    "capture_type": "intraday_1430",
+                    "code": "600001",
+                    "name": "测试股",
+                    "last_price": 10.8,
+                    "open": 10.1,
+                    "prev_close": 10.0,
+                    "current_return_pct": 8.0,
+                    "day_high_so_far": 10.9,
+                    "day_low_so_far": 10.0,
+                    "volume_so_far": 88.0,
+                    "amount_so_far": 500.0,
+                    "turnover_pct": 1.2,
+                    "volume_ratio": 1.1,
+                    "source": "unit-test",
+                }
+            ]
+        )
+        mock_load_price_data.return_value = pd.DataFrame([{"close": 9.9, "volume": 100}])
+
+        result = build_daily_features(popularity_df=popularity_df, strategy_version="v3")
+        row = result.iloc[0]
+
+        self.assertEqual(row["capture_type"], "intraday_1430")
+        self.assertEqual(row["price_status"], "ok")
+        self.assertEqual(row["price_date"], "2026-04-28")
+        self.assertAlmostEqual(float(row["close"]), 10.8, places=6)
+        self.assertAlmostEqual(float(row["day_return_pct"]), 8.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

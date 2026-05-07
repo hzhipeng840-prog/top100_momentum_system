@@ -67,6 +67,16 @@ INTRADAY_SNAPSHOT_COLUMNS = [
 ]
 
 
+def _normalize_price_history_df(price_df: pd.DataFrame) -> pd.DataFrame:
+    if price_df.empty or "date" not in price_df.columns:
+        return pd.DataFrame(columns=["date", "open", "close", "high", "low", "volume"])
+
+    working = price_df.copy()
+    working["date"] = pd.to_datetime(working["date"], errors="coerce")
+    working = working.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    return working
+
+
 def load_popularity() -> pd.DataFrame:
     df = read_csv_safely(RAW_POPULARITY_CSV)
     if df.empty:
@@ -225,7 +235,11 @@ def _rolling_mean(series: pd.Series, window: int) -> float | None:
 
 def _feature_for_price_date(price_df: pd.DataFrame, signal_date: str) -> dict:
     target_date = pd.Timestamp(signal_date).normalize()
-    history_df = price_df[price_df["date"] <= target_date].copy()
+    normalized_price_df = _normalize_price_history_df(price_df)
+    if normalized_price_df.empty:
+        return {"price_status": "missing_price_file"}
+
+    history_df = normalized_price_df[normalized_price_df["date"] <= target_date].copy()
     if history_df.empty:
         return {"price_status": "no_price_before_signal"}
 
@@ -343,7 +357,8 @@ def _feature_for_intraday_snapshot(
     signal_date: str,
 ) -> dict:
     target_date = pd.Timestamp(signal_date).normalize()
-    history_df = price_df[price_df["date"] < target_date].copy()
+    normalized_price_df = _normalize_price_history_df(price_df)
+    history_df = normalized_price_df[normalized_price_df["date"] < target_date].copy()
 
     current_close = parse_number(snapshot_row.get("last_price"))
     if current_close is None:
