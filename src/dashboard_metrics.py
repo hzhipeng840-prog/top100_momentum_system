@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-PUSH_LEVEL_ORDER = ["强推观察", "重点观察", "普通观察", "不推送"]
+PUSH_LEVEL_ORDER = ["强推观察", "重点观察", "普通观察", "观察池", "不推送"]
 RETURN_METRIC_SPECS = {
     "至今收益": ("latest_return_pct", None),
     "次日开盘收益": ("tail_next_open_pct", "settled_tail_next_day"),

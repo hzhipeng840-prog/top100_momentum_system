@@ -39,6 +39,18 @@ class DashboardMetricsTest(unittest.TestCase):
         self.assertEqual(int(ignored_row["pending_count"]), 1)
         self.assertTrue(pd.isna(ignored_row["win_rate_pct"]))
 
+    def test_summarize_push_level_performance_orders_observation_pool_before_not_push(self) -> None:
+        followup_df = pd.DataFrame(
+            [
+                {"signal_date": "2026-04-10", "push_level": "观察池", "return_5d_pct": 4.0, "settled_5d": True},
+                {"signal_date": "2026-04-10", "push_level": "不推送", "return_5d_pct": None, "settled_5d": False},
+            ]
+        )
+
+        result = summarize_push_level_performance(followup_df, "2026-04-10", "5日收益")
+
+        self.assertEqual(result["push_level"].tolist(), ["观察池", "不推送"])
+
     def test_summarize_push_level_supports_tail_metrics(self) -> None:
         followup_df = pd.DataFrame(
             [

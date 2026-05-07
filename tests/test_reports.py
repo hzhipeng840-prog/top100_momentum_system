@@ -58,6 +58,25 @@ class ReportsMarketAuditTest(unittest.TestCase):
         self.assertEqual(int(result.iloc[0]["market_lag_days"]), 0)
         self.assertEqual(result.iloc[0]["market_source"], "common_index_cache")
 
+    def test_build_latest_push_excludes_observation_pool_rows(self) -> None:
+        signal_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-27",
+                    "rank": 1,
+                    "code": "000003",
+                    "name": "Seal",
+                    "push_level": "观察池",
+                    "emotion_score": 99,
+                    "is_pushed": False,
+                }
+            ]
+        )
+
+        result = build_latest_push(signal_df)
+
+        self.assertTrue(result.empty)
+
     def test_fill_missing_market_context_backfills_market_audit_columns(self) -> None:
         base = pd.DataFrame(
             [

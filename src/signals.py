@@ -8,6 +8,9 @@ from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, normalize_strategy_v
 from src.utils import parse_number, read_csv_safely, write_csv
 
 
+OBSERVATION_POOL_LEVEL = "观察池"
+
+
 def _add_reason(reasons: list[str], text: str) -> None:
     if text and text not in reasons:
         reasons.append(text)
@@ -46,21 +49,30 @@ def _value_in_range(value: float | None, low: float | None = None, high: float |
 def _push_level_from_score(score: float, strategy_version: str, min_score: float) -> tuple[str, str]:
     watch_threshold, focus_threshold, strong_threshold = strategy_thresholds(strategy_version, min_score=min_score)
     tail_mode = strategy_version == "v3"
+    winner_mode = strategy_version == "v4"
 
     if score >= strong_threshold:
         if tail_mode:
             return "强推观察", "尾盘版：只看临近收盘仍强承接的票，次日高开先看兑现，分歧后还能回封或稳住再留。"
+        if winner_mode:
+            return "强推观察", "强势归纳版：优先看早段强势且承接干净的票，重点盯 3 到 5 日延续，不追已经走到后段的人气股。"
         return "强推观察", "高风险情绪股：不追一字，优先看分歧承接，跌破5日线或人气退潮就跑。"
     if score >= focus_threshold:
         if tail_mode:
             return "重点观察", "尾盘版：优先留给收盘前强势股，次日高开不追，承接强再拿，承接弱先走。"
+        if winner_mode:
+            return "重点观察", "强势归纳版：先保留高胜率形态，等次日承接继续确认；一旦变成后段弱承接，就不再恋战。"
         return "重点观察", "只做观察或轻仓试错，等待回落承接和量能不失控。"
     if score >= watch_threshold:
         if tail_mode:
             return "普通观察", "尾盘版：保留在候选池，尽量只看尾盘收回高位或缩量稳住的票。"
+        if winner_mode:
+            return "普通观察", "强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。"
         return "普通观察", "保留在样本池，继续看次日人气和承接。"
     if tail_mode:
         return "不推送", "尾盘版：不主动追尾盘，等下一次收盘强承接或次日确认。"
+    if winner_mode:
+        return "不推送", "强势归纳版：这类形态历史胜率不占优，先留给更干净的强势样本。"
     return "不推送", "不主动推送。"
 
 
@@ -202,6 +214,114 @@ def _apply_v3_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) 
     return adjustment
 
 
+def _apply_v4_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) -> float:
+    rank = parse_number(row.get("rank"))
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    volume_ratio = parse_number(row.get("volume_ratio_5"))
+    pre5_return = parse_number(row.get("pre5_return_pct"))
+    dist_ma20 = parse_number(row.get("dist_ma20_pct"))
+    consecutive_days = parse_number(row.get("consecutive_days"))
+    rank_change = parse_number(row.get("rank_change"))
+    upper_shadow = parse_number(row.get("upper_shadow_pct"))
+    one_word_like = _as_bool(row.get("one_word_like"))
+
+    adjustment = 0.0
+
+    winner_limit_follow_through = (
+        _value_in_range(day_return, 9.5, None)
+        and _value_in_range(close_position, 0.9, None)
+        and _value_in_range(volume_ratio, 0.8, 1.8)
+        and consecutive_days is not None
+        and 2 <= consecutive_days <= 3
+        and not one_word_like
+    )
+    if winner_limit_follow_through:
+        adjustment += 14
+        _add_reason(reasons, "v4强势连板胜率提纯")
+
+    winner_early_range = (
+        _value_in_range(day_return, 9.5, None)
+        and _value_in_range(pre5_return, 10, 30)
+        and _value_in_range(dist_ma20, 0, 28)
+        and consecutive_days is not None
+        and 1 <= consecutive_days <= 3
+        and (rank_change is None or rank_change >= -5)
+        and not one_word_like
+    )
+    if winner_early_range:
+        adjustment += 12
+        _add_reason(reasons, "v4早段强势区间命中")
+
+    winner_squeeze_breakout = (
+        _value_in_range(volume_ratio, 0.5, 1.2)
+        and _value_in_range(pre5_return, 10, 30)
+        and _value_in_range(dist_ma20, 0, 28)
+        and _value_in_range(close_position, 0.75, None)
+        and consecutive_days is not None
+        and 2 <= consecutive_days <= 3
+        and (upper_shadow is None or upper_shadow <= 0.3)
+    )
+    if winner_squeeze_breakout:
+        adjustment += 10
+        _add_reason(reasons, "v4缩量突破胜率区间")
+
+    weak_late_board = (
+        rank is not None
+        and rank > 50
+        and consecutive_days is not None
+        and consecutive_days >= 4
+        and _value_in_range(close_position, 0.45, 0.75)
+    )
+    if weak_late_board:
+        adjustment -= 16
+        _add_reason(risks, "v4回避后段弱承接长连榜")
+
+    weak_cold_pullback = (
+        rank is not None
+        and rank > 50
+        and _value_in_range(day_return, -4, 2)
+        and pre5_return is not None
+        and pre5_return < 0
+    )
+    if weak_cold_pullback:
+        adjustment -= 10
+        _add_reason(risks, "v4回避冷启动弱回踩")
+
+    weak_mid_close = (
+        day_return is not None
+        and day_return < 0
+        and _value_in_range(close_position, 0.45, 0.75)
+    )
+    if weak_mid_close:
+        adjustment -= 10
+        _add_reason(risks, "v4回避阴线中段承接")
+
+    overheated_late = (
+        pre5_return is not None
+        and pre5_return > 30
+        and consecutive_days is not None
+        and consecutive_days >= 4
+    )
+    if overheated_late:
+        adjustment -= 8
+        _add_reason(risks, "v4回避高位后段透支")
+
+    late_rank_fade = (
+        rank is not None
+        and rank > 50
+        and consecutive_days is not None
+        and consecutive_days >= 4
+        and rank_change is not None
+        and rank_change <= -10
+    )
+    if late_rank_fade:
+        adjustment -= 8
+        _add_reason(risks, "v4回避人气退潮后段样本")
+
+    return adjustment
+
+
 def score_signal(
     row: pd.Series,
     min_score: float = 60,
@@ -301,11 +421,6 @@ def score_signal(
             _add_reason(reasons, "持续霸榜")
             _add_reason(risks, "热度可能进入后段")
 
-    appearance_count = parse_number(row.get("appearance_count"))
-    if appearance_count == 1 and rank is not None and rank <= 20 and day_return is not None and day_return >= 7:
-        score += 6
-        _add_reason(reasons, "首次上榜即强势")
-
     rank_change = parse_number(row.get("rank_change"))
     if rank_change is not None:
         if rank_change >= 10:
@@ -330,18 +445,39 @@ def score_signal(
         score -= 20
         _add_reason(risks, "缺少当日行情")
 
-    if strategy_version in {"v2", "v3"}:
+    appearance_count = parse_number(row.get("appearance_count"))
+    if appearance_count == 1 and rank is not None and rank <= 20 and day_return is not None and day_return >= 7:
+        score += 6
+        _add_reason(reasons, "首次上榜即强势")
+        if (
+            strategy_version in {"v2", "v3"}
+            and close_position is not None
+            and close_position >= 0.75
+            and (volume_ratio is None or 0.5 <= volume_ratio <= 2.5)
+            and not one_word_like
+        ):
+            score += 8
+            _add_reason(reasons, "首次上榜强势提权")
+
+    if strategy_version in {"v1", "v2", "v3", "v4"}:
         score += _apply_v2_bonus_rules(row, reasons=reasons)
     if strategy_version == "v3":
         score += _apply_v3_bonus_rules(row, reasons=reasons, risks=risks)
+        score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
+    if strategy_version == "v4":
+        score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
 
     score = round(max(score, 0), 2)
     push_level, action = _push_level_from_score(score, strategy_version=strategy_version, min_score=min_score)
     watch_threshold, _, _ = strategy_thresholds(strategy_version, min_score=min_score)
+    observation_pool = one_word_like and price_status == "ok"
+    if observation_pool:
+        push_level = OBSERVATION_POOL_LEVEL
+        action = "封板不可买，放观察池跟踪"
     return {
         "emotion_score": score,
         "push_level": push_level,
-        "is_pushed": bool(score >= watch_threshold and price_status == "ok"),
+        "is_pushed": bool(score >= watch_threshold and price_status == "ok" and not observation_pool),
         "reasons": "；".join(reasons) if reasons else "-",
         "risks": "；".join(risks) if risks else "-",
         "suggested_action": action,

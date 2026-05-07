@@ -89,6 +89,44 @@ class BacktestQueriesTest(unittest.TestCase):
         self.assertEqual(result["group_value"].tolist(), ["重点观察"])
         self.assertEqual(result["metric_key"].tolist(), ["3d"])
 
+    def test_normalize_backtest_summary_orders_observation_pool_before_not_push(self) -> None:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "strategy_version": "v1",
+                    "group_name": "推送层级",
+                    "group_value": "不推送",
+                    "metric_key": "3d",
+                    "metric_label": "3日收益",
+                    "sample_count": 6,
+                    "pushed_count": 0,
+                    "valid_count": 0,
+                    "avg_return_pct": None,
+                    "win_rate_pct": None,
+                    "strong_rate_pct": None,
+                    "generated_at": "2026-05-06T12:00:00",
+                },
+                {
+                    "strategy_version": "v1",
+                    "group_name": "推送层级",
+                    "group_value": "观察池",
+                    "metric_key": "3d",
+                    "metric_label": "3日收益",
+                    "sample_count": 8,
+                    "pushed_count": 1,
+                    "valid_count": 2,
+                    "avg_return_pct": 3.5,
+                    "win_rate_pct": 60.0,
+                    "strong_rate_pct": 10.0,
+                    "generated_at": "2026-05-06T12:00:00",
+                },
+            ]
+        )
+
+        result = normalize_backtest_summary(summary_df, "v1")
+
+        self.assertEqual(result["group_value"].tolist(), ["观察池", "不推送"])
+
     def test_build_backtest_metric_matrix_pivots_metrics_for_group(self) -> None:
         result = build_backtest_metric_matrix(
             self.summary_df,

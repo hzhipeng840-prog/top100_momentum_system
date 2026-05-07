@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import patch
 
-from src.run_modes import default_tail_snapshot_time, resolve_pipeline_mode_config, run_named_mode
+from src.run_modes import default_morning_snapshot_time, default_tail_snapshot_time, resolve_pipeline_mode_config, run_named_mode
 
 
 class RunModesTest(unittest.TestCase):
@@ -17,6 +17,16 @@ class RunModesTest(unittest.TestCase):
         self.assertEqual(config.capture_type, "intraday_1430")
         self.assertTrue(config.native_fetch)
         self.assertEqual(config.snapshot_time, "2026-05-06 14:30:00")
+
+    def test_default_morning_snapshot_time_respects_timezone(self) -> None:
+        run_time = datetime.fromisoformat("2026-05-06T10:05:00+09:00")
+        self.assertEqual(default_morning_snapshot_time(run_time=run_time, timezone="Asia/Shanghai"), "2026-05-06 09:50:00")
+
+    def test_resolve_pipeline_mode_config_for_morning_capture(self) -> None:
+        config = resolve_pipeline_mode_config("morning_capture", snapshot_time="2026-05-06 09:50:00")
+        self.assertEqual(config.capture_type, "intraday_0950")
+        self.assertTrue(config.native_fetch)
+        self.assertEqual(config.snapshot_time, "2026-05-06 09:50:00")
 
     @patch("src.run_modes.run_backtest_service")
     @patch("src.run_modes.available_strategy_versions", return_value=["v1", "v2"])

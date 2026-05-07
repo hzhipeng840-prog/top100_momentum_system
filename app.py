@@ -32,7 +32,7 @@ from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV,
 from src.pipeline import run_pipeline
 from src.settings import load_settings
 from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label
-from src.trading_calendar import is_a_share_trading_day
+from src.trading_calendar import CAPTURE_TYPE_NAMES as CALENDAR_CAPTURE_TYPE_NAMES, is_a_share_trading_day
 from src.utils import normalize_code, read_csv_safely
 
 
@@ -65,19 +65,47 @@ st.markdown(
         }
         div[data-baseweb="select"] > div {
             min-height: 3rem;
+            height: 3rem;
             background: #ffffff !important;
             border: 1px solid rgba(15, 23, 42, 0.16) !important;
             border-radius: 14px !important;
             box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            box-sizing: border-box !important;
+            padding: 0 0.58rem 0 0.68rem !important;
+        }
+        div[data-baseweb="select"] [role="combobox"] {
+            min-height: 3rem !important;
+            height: 3rem !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-start !important;
+            box-sizing: border-box !important;
+        }
+        div[data-baseweb="select"] [role="combobox"] > div {
+            margin: 0 !important;
+            padding: 0 !important;
+            text-align: left !important;
         }
         div[data-baseweb="select"] input {
             color: #0f172a !important;
             font-weight: 600 !important;
             -webkit-text-fill-color: #0f172a !important;
+            line-height: 1.15 !important;
+            text-align: left !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         div[data-baseweb="select"] span {
             color: #0f172a !important;
             font-weight: 600 !important;
+            line-height: 1.15 !important;
+            text-align: left !important;
+        }
+        div[data-baseweb="select"] svg {
+            margin-top: 0 !important;
         }
         div[data-baseweb="popover"] [role="listbox"] {
             background: #ffffff !important;
@@ -126,19 +154,10 @@ DAILY_FLOW_STEPS = [
     ("5", "更新报表", "刷新快策略、今日推送、样本追踪、强势复盘和规则评估。"),
 ]
 
-CAPTURE_TYPE_LABELS = {
-    "收盘后": "post_close",
-    "早盘 9:35": "intraday_0935",
-    "早盘 10:30": "intraday_1030",
-    "尾盘 14:30": "intraday_1430",
-}
+CAPTURE_TYPE_LABELS = {label: capture_type for capture_type, label in CALENDAR_CAPTURE_TYPE_NAMES.items()}
 CAPTURE_TYPE_NAMES = {value: label for label, value in CAPTURE_TYPE_LABELS.items()}
-SNAPSHOT_STATUS_TYPES = [
-    ("收盘后", "post_close"),
-    ("早盘 9:35", "intraday_0935"),
-    ("早盘 10:30", "intraday_1030"),
-    ("尾盘 14:30", "intraday_1430"),
-]
+SNAPSHOT_STATUS_TYPES = list(CAPTURE_TYPE_LABELS.items())
+
 LESSON_TYPE_NAMES = {
     "pending": "等待后验",
     "pending_data": "行情待补",
@@ -659,6 +678,7 @@ PUSH_LEVEL_COLORS = {
     "强推观察": "#D1495B",
     "重点观察": "#EDAE49",
     "普通观察": "#2B7DE9",
+    "观察池": "#7C3AED",
     "不推送": "#9AA5B1",
 }
 
@@ -1029,7 +1049,7 @@ def build_push_level_compare_table(summary_by_version: dict[str, pd.DataFrame]) 
         if {left_up, right_up}.issubset(compare_df.columns):
             compare_df[f"{version}_vs_{baseline}_up_count_delta"] = pd.to_numeric(compare_df[right_up], errors="coerce") - pd.to_numeric(compare_df[left_up], errors="coerce")
 
-    push_level_order = {"强推观察": 0, "重点观察": 1, "普通观察": 2, "不推送": 3}
+    push_level_order = {"强推观察": 0, "重点观察": 1, "普通观察": 2, "观察池": 3, "不推送": 4}
     compare_df["_order"] = compare_df["push_level"].map(push_level_order).fillna(99)
     compare_df = compare_df.sort_values(["_order", "push_level"]).drop(columns=["_order"]).reset_index(drop=True)
     return compare_df
@@ -1072,7 +1092,8 @@ def build_rule_eval_compare_table(rule_eval_by_version: dict[str, pd.DataFrame],
         "强推观察": 0,
         "重点观察": 1,
         "普通观察": 2,
-        "不推送": 3,
+        "观察池": 3,
+        "不推送": 4,
         "Top3": 10,
         "Top10": 11,
         "Top20": 12,
@@ -1931,7 +1952,7 @@ else:
         )
     ]
 
-    metric_options = list(RETURN_METRIC_SPECS.keys())
+    metric_options = [label for label in RETURN_METRIC_SPECS.keys() if label != "10???"]
     preferred_metric = strategy_default_metric_label(selected_strategy_version)
     default_metric = preferred_metric if preferred_metric in metric_options else ("5日收益" if "5日收益" in metric_options else metric_options[0])
     selected_perf_metric = default_metric

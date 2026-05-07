@@ -27,6 +27,11 @@ class GithubDispatchTest(unittest.TestCase):
         self.assertEqual(payload["inputs"]["mode"], "tail_capture")
         self.assertIs(payload["inputs"]["force_refresh_prices"], True)
 
+    def test_build_workflow_dispatch_payload_supports_morning_capture(self) -> None:
+        payload = build_workflow_dispatch_payload(ref="main", mode="morning_capture", force_refresh_prices=False)
+        self.assertEqual(payload["inputs"]["mode"], "morning_capture")
+        self.assertIs(payload["inputs"]["force_refresh_prices"], False)
+
     def test_build_workflow_dispatch_headers_requires_token(self) -> None:
         headers = build_workflow_dispatch_headers("token-123")
         self.assertEqual(headers["Authorization"], "Bearer token-123")

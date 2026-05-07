@@ -11,7 +11,7 @@ from src.strategy_profiles import available_strategy_versions, normalize_strateg
 
 
 DEFAULT_RUN_MODE_TIMEZONE = "Asia/Shanghai"
-PIPELINE_RUN_MODES = ("full", "tail_capture", "recompute", "backtest")
+PIPELINE_RUN_MODES = ("full", "morning_capture", "tail_capture", "recompute", "backtest")
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,15 @@ def default_tail_snapshot_time(
     return snapshot.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def default_morning_snapshot_time(
+    run_time: datetime | None = None,
+    timezone: str = DEFAULT_RUN_MODE_TIMEZONE,
+    hour: int = 9,
+    minute: int = 50,
+) -> str:
+    return default_tail_snapshot_time(run_time=run_time, timezone=timezone, hour=hour, minute=minute)
+
+
 def resolve_pipeline_mode_config(
     mode: str,
     *,
@@ -51,6 +60,13 @@ def resolve_pipeline_mode_config(
     normalized = validate_pipeline_mode(mode)
     if normalized == "full":
         return PipelineModeConfig(mode=normalized, native_fetch=True, capture_type="post_close", snapshot_time=snapshot_time)
+    if normalized == "morning_capture":
+        return PipelineModeConfig(
+            mode=normalized,
+            native_fetch=True,
+            capture_type="intraday_0950",
+            snapshot_time=snapshot_time or default_morning_snapshot_time(timezone=timezone),
+        )
     if normalized == "tail_capture":
         return PipelineModeConfig(
             mode=normalized,

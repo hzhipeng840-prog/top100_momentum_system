@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from src.paths import PROJECT_ROOT
 from src.workflow_tasks import (
+    build_morning_snapshot_time,
     build_tail_snapshot_time,
     build_workflow_command,
     run_workflow_mode,
@@ -35,6 +36,13 @@ class WorkflowTasksTest(unittest.TestCase):
             "2026-05-06 14:30:00",
         )
 
+    def test_build_morning_snapshot_time_uses_requested_timezone(self) -> None:
+        run_time = datetime.fromisoformat("2026-05-06T10:05:00+09:00")
+        self.assertEqual(
+            build_morning_snapshot_time(run_time=run_time, timezone="Asia/Shanghai"),
+            "2026-05-06 09:50:00",
+        )
+
     def test_build_workflow_command_for_tail_capture_is_explicit(self) -> None:
         command = build_workflow_command(
             "tail_capture",
@@ -50,6 +58,26 @@ class WorkflowTasksTest(unittest.TestCase):
                 "tail_capture",
                 "--snapshot-time",
                 "2026-05-06 14:30:00",
+                "--timezone",
+                "Asia/Shanghai",
+            ],
+        )
+
+    def test_build_workflow_command_for_morning_capture_is_explicit(self) -> None:
+        command = build_workflow_command(
+            "morning_capture",
+            snapshot_time="2026-05-06 09:50:00",
+            python_executable="python",
+        )
+        self.assertEqual(
+            command,
+            [
+                "python",
+                "daily_job.py",
+                "--mode",
+                "morning_capture",
+                "--snapshot-time",
+                "2026-05-06 09:50:00",
                 "--timezone",
                 "Asia/Shanghai",
             ],

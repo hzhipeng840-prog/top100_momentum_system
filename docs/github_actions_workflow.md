@@ -12,6 +12,8 @@ It no longer relies on GitHub's own `schedule` trigger for time-sensitive A-shar
 
 - `full`
   Runs the post-close pipeline with `python daily_job.py --mode full`.
+- `morning_capture`
+  Runs the 9:50 intraday pipeline with an explicit Shanghai snapshot timestamp.
 - `tail_capture`
   Runs the 14:30 intraday pipeline with an explicit Shanghai snapshot timestamp.
 - `recompute`
@@ -60,6 +62,7 @@ This repository includes a ready-to-use helper:
 Examples:
 
 ```bash
+python dispatch_workflow.py --mode morning_capture
 python dispatch_workflow.py --mode tail_capture
 python dispatch_workflow.py --mode full
 python dispatch_workflow.py --mode backtest
@@ -74,6 +77,17 @@ Optional flags:
 - `--token-env`
 
 ## Direct API Example
+
+Morning capture:
+
+```bash
+curl -L -X POST ^
+  -H "Accept: application/vnd.github+json" ^
+  -H "Authorization: Bearer %GITHUB_TOKEN%" ^
+  -H "X-GitHub-Api-Version: 2022-11-28" ^
+  https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches ^
+  -d "{\"ref\":\"main\",\"inputs\":{\"mode\":\"morning_capture\",\"force_refresh_prices\":false}}"
+```
 
 Tail capture:
 
@@ -102,6 +116,7 @@ curl -L -X POST ^
 ### Linux or VPS cron
 
 ```cron
+50 9 * * 1-5 cd /opt/top100_momentum_system && /usr/bin/python3 dispatch_workflow.py --mode morning_capture
 30 14 * * 1-5 cd /opt/top100_momentum_system && /usr/bin/python3 dispatch_workflow.py --mode tail_capture
 10 17 * * 1-5 cd /opt/top100_momentum_system && /usr/bin/python3 dispatch_workflow.py --mode full
 ```
@@ -129,7 +144,29 @@ Payload examples are shown above.
 
 Recommended setup:
 
-#### Job 1: 14:30 tail capture
+#### Job 1: 9:50 morning capture
+
+- Name: `top100 morning_capture`
+- URL: `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
+- Method: `POST`
+- Schedule: weekdays at `09:50` in `Asia/Shanghai`
+- Headers:
+  - `Accept: application/vnd.github+json`
+  - `Authorization: Bearer <YOUR_GITHUB_TOKEN>`
+  - `X-GitHub-Api-Version: 2022-11-28`
+- Body:
+
+```json
+{
+  "ref": "main",
+  "inputs": {
+    "mode": "morning_capture",
+    "force_refresh_prices": false
+  }
+}
+```
+
+#### Job 2: 14:30 tail capture
 
 - Name: `top100 tail_capture`
 - URL: `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
@@ -151,7 +188,7 @@ Recommended setup:
 }
 ```
 
-#### Job 2: 17:10 post-close full run
+#### Job 3: 17:10 post-close full run
 
 - Name: `top100 full`
 - URL: `https://api.github.com/repos/hzhipeng840-prog/top100_momentum_system/actions/workflows/top100_pipeline.yml/dispatches`
@@ -203,6 +240,7 @@ That is enough for normal use.
 For `workflow_dispatch` runs in these modes:
 
 - `full`
+- `morning_capture`
 - `tail_capture`
 - `recompute`
 - `backtest`

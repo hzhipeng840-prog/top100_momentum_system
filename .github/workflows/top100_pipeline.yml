@@ -22,6 +22,7 @@ on:
         type: choice
         options:
           - full
+          - morning_capture
           - tail_capture
           - recompute
           - backtest

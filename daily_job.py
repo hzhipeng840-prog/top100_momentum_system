@@ -15,7 +15,7 @@ def parse_args() -> argparse.Namespace:
         help=f"Named run mode, such as {', '.join(PIPELINE_RUN_MODES)}.",
     )
     parser.add_argument("--no-fetch", action="store_true", help="Only recompute existing local data without fetching.")
-    parser.add_argument("--capture-type", default=None, help="Snapshot label, such as post_close, intraday_0935, intraday_1430.")
+    parser.add_argument("--capture-type", default=None, help="Snapshot label, such as post_close, intraday_0950, intraday_0935, intraday_1430.")
     parser.add_argument("--snapshot-time", default=None, help="Snapshot timestamp, for example 2026-04-20 09:35:00.")
     parser.add_argument("--force-refresh-prices", action="store_true", help="Force remote refresh of stock price caches.")
     parser.add_argument("--timezone", default=DEFAULT_RUN_MODE_TIMEZONE, help="Timezone used for auto-generated mode timestamps.")

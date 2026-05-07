@@ -15,19 +15,22 @@ CAPTURE_READY_TIMES = {
     "intraday_0935": (9, 35),
     "intraday_1030": (10, 30),
     "intraday_1430": (14, 30),
+    "intraday_0950": (9, 50),
     "post_close": (16, 0),
 }
 CAPTURE_WINDOW_GRACE_MINUTES = {
     "intraday_0935": 15,
     "intraday_1030": 20,
     "intraday_1430": 25,
+    "intraday_0950": 15,
     "post_close": 90,
 }
 CAPTURE_TYPE_NAMES = {
-    "intraday_0935": "早盘 9:35",
-    "intraday_1030": "早盘 10:30",
-    "intraday_1430": "尾盘 14:30",
-    "post_close": "收盘后",
+    "intraday_0935": "?? 9:35",
+    "intraday_0950": "?? 9:50",
+    "intraday_1030": "?? 10:30",
+    "intraday_1430": "?? 14:30",
+    "post_close": "???",
 }
 
 

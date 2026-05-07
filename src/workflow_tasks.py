@@ -8,10 +8,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.paths import PROJECT_ROOT
-from src.run_modes import DEFAULT_RUN_MODE_TIMEZONE, default_tail_snapshot_time
+from src.run_modes import DEFAULT_RUN_MODE_TIMEZONE, default_morning_snapshot_time, default_tail_snapshot_time
 
 
-SUPPORTED_WORKFLOW_MODES = ("full", "tail_capture", "recompute", "backtest", "tests")
+SUPPORTED_WORKFLOW_MODES = ("full", "morning_capture", "tail_capture", "recompute", "backtest", "tests")
 DEFAULT_WORKFLOW_TIMEZONE = DEFAULT_RUN_MODE_TIMEZONE
 
 
@@ -31,6 +31,20 @@ def build_tail_snapshot_time(
 ) -> str:
     if run_time is None:
         return default_tail_snapshot_time(timezone=timezone, hour=hour, minute=minute)
+    zone = ZoneInfo(timezone)
+    current = run_time.astimezone(zone)
+    snapshot_time = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return snapshot_time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def build_morning_snapshot_time(
+    run_time: datetime | None = None,
+    timezone: str = DEFAULT_WORKFLOW_TIMEZONE,
+    hour: int = 9,
+    minute: int = 50,
+) -> str:
+    if run_time is None:
+        return default_morning_snapshot_time(timezone=timezone, hour=hour, minute=minute)
     zone = ZoneInfo(timezone)
     current = run_time.astimezone(zone)
     snapshot_time = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -60,12 +74,24 @@ def build_workflow_command(
             "--timezone",
             timezone,
         ]
+    elif normalized == "morning_capture":
+        resolved_snapshot_time = snapshot_time or build_morning_snapshot_time(timezone=timezone)
+        command = [
+            python_cmd,
+            "daily_job.py",
+            "--mode",
+            normalized,
+            "--snapshot-time",
+            resolved_snapshot_time,
+            "--timezone",
+            timezone,
+        ]
     elif normalized in {"full", "recompute", "backtest"}:
         command = [python_cmd, "daily_job.py", "--mode", normalized, "--timezone", timezone]
     else:
         command = [python_cmd, "-m", "unittest", "discover", "-s", "tests", "-v"]
 
-    if force_refresh_prices and normalized in {"full", "tail_capture"}:
+    if force_refresh_prices and normalized in {"full", "tail_capture", "morning_capture"}:
         command.append("--force-refresh-prices")
     return command
 
@@ -183,9 +209,11 @@ def run_workflow_mode(
     ]
     log_path.write_text("\n".join(log_sections), encoding="utf-8")
 
-    resolved_snapshot_time = snapshot_time if normalized == "tail_capture" else None
+    resolved_snapshot_time = snapshot_time if normalized in {"tail_capture", "morning_capture"} else None
     if normalized == "tail_capture" and not resolved_snapshot_time:
         resolved_snapshot_time = build_tail_snapshot_time(timezone=timezone)
+    if normalized == "morning_capture" and not resolved_snapshot_time:
+        resolved_snapshot_time = build_morning_snapshot_time(timezone=timezone)
 
     result: dict[str, object] = {
         "mode": normalized,

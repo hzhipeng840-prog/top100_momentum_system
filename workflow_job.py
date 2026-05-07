@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        help="Workflow mode: full, tail_capture, recompute, backtest, tests.",
+        help="Workflow mode: full, morning_capture, tail_capture, recompute, backtest, tests.",
     )
     parser.add_argument(
         "--summary-path",
