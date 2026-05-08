@@ -1905,7 +1905,6 @@ elif active_view == "样本追踪":
 
 elif active_view == "强势复盘":
     st.subheader("强势复盘")
-    st.caption("这里专门看后来涨得好的样本，用来反推什么特征更像圣阳股份。")
     if isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
         st.warning(f"强势复盘当前还没通过数据新鲜度校验：{freshness_report.get('summary') or freshness_report.get('reason') or '请先跑完整收盘版主流程'}")
     display_table(
