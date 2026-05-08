@@ -5,6 +5,14 @@ from copy import deepcopy
 
 DEFAULT_STRATEGY_VERSION = "v1"
 
+CAPTURE_TYPE_TO_STRATEGY_VERSION: dict[str, str] = {
+    "post_close": "v1",
+    "intraday_0935": "v2",
+    "intraday_0950": "v2",
+    "intraday_1030": "v2",
+    "intraday_1430": "v3",
+}
+
 
 STRATEGY_PROFILES: dict[str, dict[str, object]] = {
     "v1": {
@@ -96,3 +104,10 @@ def strategy_capture_priority(version: object) -> list[str]:
     if not isinstance(values, list) or not values:
         return ["post_close"]
     return [str(value).strip() for value in values if str(value).strip()]
+
+
+def strategy_version_for_capture_type(capture_type: object) -> str | None:
+    text = str(capture_type or "").strip().lower()
+    if not text:
+        return None
+    return CAPTURE_TYPE_TO_STRATEGY_VERSION.get(text)

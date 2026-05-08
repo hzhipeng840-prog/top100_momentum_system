@@ -13,7 +13,12 @@ from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for
 from src.reports import build_reports
 from src.settings import load_settings
 from src.signals import build_signals, save_signals
-from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, normalize_strategy_version
+from src.strategy_profiles import (
+    DEFAULT_STRATEGY_VERSION,
+    available_strategy_versions,
+    normalize_strategy_version,
+    strategy_version_for_capture_type,
+)
 from src.trading_calendar import latest_expected_market_date, should_skip_market_fetch
 from src.utils import normalize_code, read_csv_safely
 
@@ -163,9 +168,12 @@ def _intraday_refresh_codes(
     return ordered_codes
 
 
-def _resolve_strategy_versions(settings: dict) -> tuple[list[str], str]:
+def _resolve_strategy_versions(settings: dict, capture_type: str | None = None) -> tuple[list[str], str]:
     versions = available_strategy_versions(settings)
     default_version = normalize_strategy_version(settings.get("default_strategy_version", DEFAULT_STRATEGY_VERSION))
+    capture_version = strategy_version_for_capture_type(capture_type)
+    if capture_version:
+        return [capture_version], capture_version
     if default_version not in versions:
         versions.insert(0, default_version)
     return versions, default_version
@@ -234,7 +242,8 @@ def run_pipeline(
 ) -> dict:
     settings = load_settings()
     ensure_layout()
-    strategy_versions, default_strategy_version = _resolve_strategy_versions(settings)
+    resolved_capture_type = capture_type or str(settings.get("default_capture_type", "post_close"))
+    strategy_versions, default_strategy_version = _resolve_strategy_versions(settings, capture_type=capture_type)
 
     result: dict[str, object] = {
         "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -243,7 +252,6 @@ def run_pipeline(
         "default_strategy_version": default_strategy_version,
     }
 
-    resolved_capture_type = capture_type or str(settings.get("default_capture_type", "post_close"))
     if native_fetch:
         fetch_guard = should_skip_market_fetch(resolved_capture_type)
         if fetch_guard["skip"]:

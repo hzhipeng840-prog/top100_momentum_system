@@ -149,6 +149,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
+        self.assertEqual(result["strategy_versions"], ["v1"])
         self.assertEqual(result["intraday_cache"], {"requested": 2})
 
     @patch("src.pipeline.warm_intraday_cache")
@@ -239,6 +240,98 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
+        self.assertEqual(result["strategy_versions"], ["v3"])
+        self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
+
+    @patch("src.pipeline.warm_intraday_cache")
+    @patch("src.pipeline.build_reports", return_value={})
+    @patch("src.pipeline.save_followups")
+    @patch("src.pipeline.build_followups", return_value=pd.DataFrame())
+    @patch("src.pipeline.warm_stock_price_cache", return_value={})
+    @patch("src.pipeline.save_signals")
+    @patch("src.pipeline.build_signals", return_value=pd.DataFrame())
+    @patch("src.pipeline.save_market_regime")
+    @patch("src.pipeline.build_market_regime", return_value=pd.DataFrame())
+    @patch("src.pipeline.save_daily_features")
+    @patch("src.pipeline.build_daily_features", return_value=pd.DataFrame())
+    @patch(
+        "src.pipeline.load_popularity",
+        return_value=pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-28",
+                    "rank": 1,
+                    "code": "600001",
+                    "name": "娴嬭瘯鑲",
+                    "popularity_score": 100,
+                    "source": "10jqka",
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-04-28 09:50:00",
+                },
+                {
+                    "signal_date": "2026-04-28",
+                    "rank": 2,
+                    "code": "600002",
+                    "name": "娴嬭瘯鑲",
+                    "popularity_score": 90,
+                    "source": "10jqka",
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-04-28 09:50:00",
+                },
+            ]
+        ),
+    )
+    @patch("src.pipeline.run_native_fetch", return_value={"status": "ok"})
+    @patch("src.pipeline.should_skip_market_fetch", return_value={"skip": False, "skip_reason_code": "", "reason": "", "expected_signal_date": "2026-04-28"})
+    @patch(
+        "src.pipeline.load_settings",
+        return_value={
+            "top_n": 100,
+            "default_capture_type": "post_close",
+            "signal_min_score": 60,
+            "latest_push_limit": None,
+            "strong_return_threshold_pct": 15,
+            "followup_days": [1, 3, 5, 10],
+            "refresh_price_cache": True,
+            "refresh_market_cache": True,
+            "refresh_intraday_cache": True,
+            "intraday_cache_push_only": True,
+            "intraday_cache_limit": 20,
+        },
+    )
+    def test_run_pipeline_warms_intraday_feature_cache_for_intraday_v2(
+        self,
+        _mock_load_settings,
+        _mock_should_skip_market_fetch,
+        _mock_run_native_fetch,
+        _mock_load_popularity,
+        _mock_build_daily_features,
+        _mock_save_daily_features,
+        _mock_build_market_regime,
+        _mock_save_market_regime,
+        _mock_build_signals,
+        _mock_save_signals,
+        _mock_warm_stock_price_cache,
+        _mock_build_followups,
+        _mock_save_followups,
+        _mock_build_reports,
+        mock_warm_intraday_cache,
+    ) -> None:
+        mock_warm_intraday_cache.return_value = {"requested": 2}
+
+        result = pipeline.run_pipeline(native_fetch=True, capture_type="intraday_0950")
+
+        mock_warm_intraday_cache.assert_called_once_with(
+            ["600001", "600002"],
+            trade_date="2026-04-28",
+            capture_type="intraday_0950",
+            snapshot_time="2026-04-28 09:50:00",
+            refresh_snapshot=True,
+            refresh_bars=False,
+            force_refresh_snapshot=True,
+            force_refresh_bars=False,
+        )
+        self.assertEqual(result["strategy_versions"], ["v2"])
         self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
 
     @patch("src.pipeline.build_reports", return_value={})

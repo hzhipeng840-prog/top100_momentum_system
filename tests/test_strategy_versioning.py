@@ -10,6 +10,7 @@ from src.strategy_profiles import (
     strategy_capture_priority,
     strategy_default_metric_label,
     strategy_thresholds,
+    strategy_version_for_capture_type,
 )
 
 
@@ -125,6 +126,14 @@ class StrategyVersioningTest(unittest.TestCase):
         self.assertEqual(strategy_default_metric_label("v3"), "次日收盘收益")
         self.assertEqual(strategy_thresholds("v3", min_score=60), (74.0, 88.0, 102.0))
         self.assertEqual(strategy_capture_priority("v3"), ["intraday_1430", "post_close"])
+
+    def test_capture_type_routes_to_expected_strategy_version(self) -> None:
+        self.assertEqual(strategy_version_for_capture_type("post_close"), "v1")
+        self.assertEqual(strategy_version_for_capture_type("intraday_0935"), "v2")
+        self.assertEqual(strategy_version_for_capture_type("intraday_0950"), "v2")
+        self.assertEqual(strategy_version_for_capture_type("intraday_1030"), "v2")
+        self.assertEqual(strategy_version_for_capture_type("intraday_1430"), "v3")
+        self.assertIsNone(strategy_version_for_capture_type("tests"))
 
     def test_v4_promotes_high_win_shape_and_uses_post_close_defaults(self) -> None:
         row = {
