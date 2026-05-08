@@ -408,7 +408,6 @@ def run_pipeline(
             should_refresh_followup_prices = (
                 native_fetch
                 and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
-                and skip_reason_code not in {"holiday", "weekend"}
                 and bool(settings.get("refresh_price_cache", True))
                 and not signal_df.empty
             )
