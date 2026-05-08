@@ -46,6 +46,23 @@ def _value_in_range(value: float | None, low: float | None = None, high: float |
     return True
 
 
+def _buyability_gate(row: pd.Series) -> tuple[bool, str | None]:
+    one_word_like = _as_bool(row.get("one_word_like"))
+    if one_word_like:
+        return False, "一字板不可买"
+
+    limit_up_like = _as_bool(row.get("limit_up_like"))
+    if limit_up_like:
+        return False, "涨停封板不可买"
+
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    if day_return is not None and day_return >= 9.5 and (close_position is None or close_position >= 0.9):
+        return False, "涨停封板不可买"
+
+    return True, None
+
+
 def _push_level_from_score(score: float, strategy_version: str, min_score: float) -> tuple[str, str]:
     watch_threshold, focus_threshold, strong_threshold = strategy_thresholds(strategy_version, min_score=min_score)
     tail_mode = strategy_version == "v3"
@@ -552,14 +569,17 @@ def score_signal(
     score = round(max(score, 0), 2)
     push_level, action = _push_level_from_score(score, strategy_version=strategy_version, min_score=min_score)
     watch_threshold, _, _ = strategy_thresholds(strategy_version, min_score=min_score)
-    observation_pool = one_word_like and price_status == "ok"
+    buyable, buyability_reason = _buyability_gate(row)
+    if not buyable:
+        _add_reason(risks, buyability_reason or "封板不可买")
+    observation_pool = price_status == "ok" and not buyable
     if observation_pool:
         push_level = OBSERVATION_POOL_LEVEL
-        action = "封板不可买，放观察池跟踪"
+        action = f"{buyability_reason or '封板不可买'}，放观察池跟踪"
     return {
         "emotion_score": score,
         "push_level": push_level,
-        "is_pushed": bool(score >= watch_threshold and price_status == "ok" and not observation_pool),
+        "is_pushed": bool(score >= watch_threshold and price_status == "ok" and buyable),
         "reasons": "；".join(reasons) if reasons else "-",
         "risks": "；".join(risks) if risks else "-",
         "suggested_action": action,

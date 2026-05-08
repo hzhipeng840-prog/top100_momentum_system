@@ -436,10 +436,28 @@ def _numeric_value(value: object) -> float | None:
     return float(numeric)
 
 
-def _fast_thresholds_for_market(market_regime: object) -> tuple[float, float, float, float]:
-    if str(market_regime or "") == "弱势":
-        return 90.0, 80.0, 70.0, 75.0
-    return 85.0, 75.0, 65.0, 65.0
+def _fast_thresholds_for_market(market_regime: object, strategy_version: str = DEFAULT_STRATEGY_VERSION) -> tuple[float, float, float, float]:
+    version = normalize_strategy_version(strategy_version)
+    base_profiles = {
+        "v1": (50.0, 46.0, 42.0, 40.0),
+        "v2": (51.0, 47.0, 43.0, 41.0),
+        "v3": (52.0, 48.0, 44.0, 42.0),
+        "v4": (52.0, 48.0, 44.0, 42.0),
+    }
+    strong_line, priority_line, backup_line, selected_floor = base_profiles.get(version, base_profiles["v1"])
+    market_text = str(market_regime or "")
+    if market_text == "震荡":
+        offset = 1.0
+    elif market_text == "弱势":
+        offset = 2.0
+    else:
+        offset = 0.0
+    return (
+        strong_line + offset,
+        priority_line + offset,
+        backup_line + offset,
+        selected_floor + offset,
+    )
 
 
 def _market_adjustment(row: pd.Series, reasons: list[str]) -> float:
@@ -477,7 +495,7 @@ def _dominant_market_regime(df: pd.DataFrame) -> str:
     return str(values.mode().iloc[0])
 
 
-def _score_fast_candidate(row: pd.Series, rule: dict) -> dict:
+def _score_fast_candidate(row: pd.Series, rule: dict, strategy_version: str = DEFAULT_STRATEGY_VERSION) -> dict:
     score = 0.0
     reasons: list[str] = []
     emotion_score = pd.to_numeric(pd.Series([row.get("emotion_score")]), errors="coerce").iloc[0]
@@ -523,7 +541,7 @@ def _score_fast_candidate(row: pd.Series, rule: dict) -> dict:
     score += market_adjustment
 
     score = round(max(score, 0.0), 2)
-    main_line, priority_line, backup_line, _ = _fast_thresholds_for_market(row.get("market_regime"))
+    main_line, priority_line, backup_line, _ = _fast_thresholds_for_market(row.get("market_regime"), strategy_version=strategy_version)
     if score >= main_line:
         fast_level = "下个交易日主盯"
         plan = "先看开盘分歧后的承接，强转弱或量能失控就放弃。"
@@ -602,7 +620,7 @@ def build_fast_strategy(
     latest_df = latest_df.copy()
     latest_df["rank_bucket"] = latest_df["rank"].apply(_rank_bucket)
     latest_df["stage_bucket"] = latest_df["consecutive_days"].apply(_stage_bucket)
-    scored = pd.DataFrame([_score_fast_candidate(row, rule) for _, row in latest_df.iterrows()])
+    scored = pd.DataFrame([_score_fast_candidate(row, rule, strategy_version=strategy_version) for _, row in latest_df.iterrows()])
     latest_df = pd.concat([latest_df.reset_index(drop=True), scored], axis=1)
     latest_df["strategy_date"] = latest_date
     latest_df["training_date"] = training_date
@@ -614,7 +632,7 @@ def build_fast_strategy(
 
     latest_df["fast_score"] = pd.to_numeric(latest_df["fast_score"], errors="coerce")
     latest_df["rank"] = pd.to_numeric(latest_df["rank"], errors="coerce")
-    _, _, _, selected_floor = _fast_thresholds_for_market(latest_market_regime)
+    _, _, _, selected_floor = _fast_thresholds_for_market(latest_market_regime, strategy_version=strategy_version)
     selected = latest_df[latest_df["fast_score"] >= selected_floor].copy()
     if selected.empty:
         selected = latest_df.sort_values(["fast_score", "emotion_score", "rank"], ascending=[False, False, True]).head(20).copy()
@@ -1128,7 +1146,6 @@ def build_reports(
             signal_df=signal_df,
             history_path=fast_strategy_history_path,
         )
-        fast_strategy_df = _locked_current_fast_strategy(fast_strategy_df, fast_strategy_history_df)
 
         for frame in [latest_push_df, fast_strategy_df]:
             if not frame.empty or "strategy_version" not in frame.columns:
@@ -1164,7 +1181,6 @@ def build_reports(
         signal_df=signal_df,
         history_path=fast_strategy_history_path,
     )
-    fast_strategy_df = _locked_current_fast_strategy(fast_strategy_df, fast_strategy_history_df)
     fast_strategy_audit_df = build_fast_strategy_audit(
         history_df=fast_strategy_history_df,
         signal_df=signal_df,

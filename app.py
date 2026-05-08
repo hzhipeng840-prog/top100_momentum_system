@@ -27,6 +27,7 @@ from src.backtest_queries import (
     normalize_backtest_summary,
 )
 from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend
+from src.freshness import build_data_freshness_report
 from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
 from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
 from src.pipeline import run_pipeline
@@ -1116,11 +1117,20 @@ def is_priority_focus(row: pd.Series, candidate_hit: str) -> str:
     return "是" if str(row.get("push_level", "")) in {"强推观察", "重点观察"} else "否"
 
 
-def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame) -> pd.DataFrame:
+def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, strategy_version: str) -> pd.DataFrame:
     if push_df.empty:
         return pd.DataFrame()
 
     working_df = push_df.reset_index(drop=True).copy()
+    if "push_level" in working_df.columns:
+        # Execution list should only surface actionable names; observation pool stays out.
+        working_df = working_df[working_df["push_level"].astype(str).ne("观察池")].copy()
+    if strategy_version in {"v2", "v3"} and "push_level" in working_df.columns:
+        # For intraday versions, once limit-up names are removed, execution rows must stay high quality.
+        working_df = working_df[working_df["push_level"].astype(str).isin(["强推观察", "重点观察"])].copy()
+    if working_df.empty:
+        return pd.DataFrame()
+
     fast_lookup = pd.DataFrame()
     if not fast_df.empty and "code" in fast_df.columns:
         fast_lookup = fast_df.copy()
@@ -1429,15 +1439,18 @@ def render_sidebar_daily_flow() -> str:
                 )
             st.session_state["last_pipeline_result"] = result
             data_status = str((result.get("data", {}) or {}).get("status", ""))
+            data_reason = str((result.get("data", {}) or {}).get("reason", "") or "").strip()
             if data_status == "skipped_market_closed":
-                st.sidebar.warning(str((result.get("data", {}) or {}).get("reason", "已跳过新榜抓取，只重算当前缓存。")))
+                st.sidebar.warning(data_reason or "????????????????")
             elif data_status == "skipped_existing_snapshot":
-                st.sidebar.info(str((result.get("data", {}) or {}).get("reason", "同一采集快照已存在，本次跳过新榜抓取。")))
+                st.sidebar.info(data_reason or "????????????????")
+            elif data_status == "stale_settlement":
+                st.sidebar.warning(data_reason or "???????????????? stale_settlement?")
             else:
-                st.sidebar.success("主流程已完成，当前页面数据已刷新。")
+                st.sidebar.success("??????")
         except Exception as exc:
             st.session_state["last_pipeline_error"] = str(exc)
-            st.sidebar.error(f"主流程失败：{exc}")
+            st.sidebar.error(f"??????{exc}")
 
     if "last_pipeline_result" in st.session_state:
         result = st.session_state["last_pipeline_result"]
@@ -1448,9 +1461,16 @@ def render_sidebar_daily_flow() -> str:
             feature_stats = result.get("features", {}) or {}
             signal_stats = result.get("signals", {}) or {}
             report_stats = result.get("reports", {}) or {}
+            freshness_stats = result.get("freshness", {}) or {}
             st.write(f"Top100 样本：{data_stats.get('popularity_rows', '-')}")
             if data_stats.get("reason"):
                 st.warning(str(data_stats.get("reason")))
+            if freshness_stats:
+                freshness_text = "通过" if freshness_stats.get("is_fresh") else "未通过"
+                st.write(f"数据新鲜度：{freshness_text}")
+                freshness_summary_text = str(freshness_stats.get("summary", "") or "").strip()
+                if freshness_summary_text:
+                    st.caption(freshness_summary_text)
             st.write(f"特征行数：{feature_stats.get('rows', '-')}")
             st.write(f"推送行数：{signal_stats.get('pushed_rows', '-')}")
             st.write(f"强势复盘：{report_stats.get('strong_recap_rows', '-')}")
@@ -1504,6 +1524,7 @@ rule_eval_df = (
 )
 lesson_eval_df = data["lesson_eval"]
 market_regime_df = data["market_regime"]
+freshness_report = build_data_freshness_report(followups_df, market_regime_df)
 
 if selected_strategy_version != DEFAULT_APP_STRATEGY_VERSION and signals_df.empty:
     st.warning(f"{get_strategy_profile(selected_strategy_version).get('name', selected_strategy_version.upper())} 还没有产出结果，先运行一次主流程即可生成。")
@@ -1556,6 +1577,12 @@ render_compact_cards(
 )
 if market_status_note:
     st.caption(market_status_note)
+freshness_summary = str(freshness_report.get("summary", "") or "").strip()
+if freshness_summary:
+    if freshness_report.get("is_fresh"):
+        st.caption(freshness_summary)
+    else:
+        st.warning(freshness_summary)
 active_view = st.radio(
     "查看页面",
     options=["今日决策", "历史审查", "样本追踪", "强势复盘", "规则评估"],
@@ -1653,7 +1680,7 @@ if active_view == "今日决策":
     if latest_push_df.empty:
         st.info("暂无今日推送数据。")
     else:
-        execution_df = build_execution_display_df(latest_push_df, fast_strategy_df)
+        execution_df = build_execution_display_df(latest_push_df, fast_strategy_df, selected_strategy_version)
         execution_scope = st.radio(
             "执行单范围",
             options=["优先关注", "强推/重点", "全部"],
@@ -1883,6 +1910,8 @@ elif active_view == "样本追踪":
 elif active_view == "强势复盘":
     st.subheader("强势复盘")
     st.caption("这里专门看后来涨得好的样本，用来反推什么特征更像圣阳股份。")
+    if isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
+        st.warning(f"强势复盘当前还没通过数据新鲜度校验：{freshness_report.get('summary') or freshness_report.get('reason') or '请先跑完整收盘版主流程'}")
     display_table(
         strong_recap_df,
         columns=[

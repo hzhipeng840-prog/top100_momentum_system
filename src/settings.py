@@ -16,6 +16,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "latest_push_limit": None,
     "strong_return_threshold_pct": 15,
     "followup_days": [1, 3, 5, 10],
+    "settlement_freshness_min_ratio": 0.95,
     "refresh_price_cache": True,
     "refresh_market_cache": True,
     "refresh_intraday_cache": True,

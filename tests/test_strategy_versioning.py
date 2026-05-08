@@ -95,13 +95,36 @@ class StrategyVersioningTest(unittest.TestCase):
 
         self.assertEqual(result["push_level"], "观察池")
         self.assertFalse(result["is_pushed"])
-        self.assertIn("封板不可买", result["suggested_action"])
+        self.assertIn("一字板不可买", result["suggested_action"])
+
+    def test_limit_up_like_near_board_lock_moves_to_observation_pool(self) -> None:
+        row = {
+            "rank": 6,
+            "day_return_pct": 10.02,
+            "close_position": 0.99,
+            "volume_ratio_5": 1.02,
+            "pre5_return_pct": 18.0,
+            "dist_ma20_pct": 16.0,
+            "consecutive_days": 2,
+            "appearance_count": 1,
+            "rank_change": 2,
+            "one_word_like": False,
+            "limit_up_like": True,
+            "upper_shadow_pct": 0.05,
+            "price_status": "ok",
+        }
+
+        result = score_signal(row, strategy_version="v3")
+
+        self.assertEqual(result["push_level"], "观察池")
+        self.assertFalse(result["is_pushed"])
+        self.assertIn("涨停封板", result["suggested_action"])
 
     def test_v3_absorbs_tail_and_winner_rules(self) -> None:
         row = {
             "rank": 18,
-            "day_return_pct": 10.02,
-            "close_position": 0.96,
+            "day_return_pct": 7.59,
+            "close_position": 0.85,
             "volume_ratio_5": 1.02,
             "pre5_return_pct": 18.0,
             "dist_ma20_pct": 16.0,
@@ -109,7 +132,7 @@ class StrategyVersioningTest(unittest.TestCase):
             "appearance_count": 1,
             "rank_change": 3,
             "one_word_like": False,
-            "limit_up_like": True,
+            "limit_up_like": False,
             "upper_shadow_pct": 0.12,
             "price_status": "ok",
         }

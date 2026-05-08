@@ -6,6 +6,7 @@ import pandas as pd
 
 from src.features import build_daily_features, build_latest_daily_features, load_popularity, save_daily_features
 from src.followups import build_followups, save_followups
+from src.freshness import build_data_freshness_report
 from src.intraday_fetcher import warm_intraday_cache
 from src.market_regime import build_market_regime, save_market_regime, warm_market_index_cache
 from src.native_fetcher import run_native_fetch, warm_stock_price_cache
@@ -372,6 +373,9 @@ def run_pipeline(
     strong_threshold = float(settings.get("strong_return_threshold_pct", 15))
 
     signal_frames: dict[str, pd.DataFrame] = {}
+    existing_signal_history_frames: dict[str, pd.DataFrame] = {
+        strategy_version: read_csv_safely(signals_csv_for(strategy_version)) for strategy_version in strategy_versions
+    }
     for strategy_version in strategy_versions:
         signal_df = build_signals(
             feature_frames[strategy_version],
@@ -379,9 +383,9 @@ def run_pipeline(
             market_regime_df=market_regime_df,
             strategy_version=strategy_version,
         )
-        if light_report_mode:
-            existing_signal_history = read_csv_safely(signals_csv_for(strategy_version))
-            signal_df = _merge_feature_history(existing_signal_history, signal_df)
+        existing_signal_history = existing_signal_history_frames.get(strategy_version, pd.DataFrame())
+        if not existing_signal_history.empty:
+            signal_df = _merge_history_by_date(existing_signal_history, signal_df)
         save_signals(signal_df, strategy_version=strategy_version)
         signal_frames[strategy_version] = signal_df
         strategy_results[strategy_version]["signals"] = {
@@ -393,12 +397,14 @@ def run_pipeline(
     result["signals"] = strategy_results.get(default_strategy_version, {}).get("signals", {})
 
     followup_frames: dict[str, pd.DataFrame] = {}
+    existing_followup_history_frames: dict[str, pd.DataFrame] = {
+        strategy_version: read_csv_safely(followups_csv_for(strategy_version)) for strategy_version in strategy_versions
+    }
     followup_refresh_codes: set[str] = set()
+    followup_price_cache_stats: dict[str, object] | None = None
     for strategy_version in strategy_versions:
         signal_df = signal_frames[strategy_version]
-        if light_report_mode:
-            followup_df = read_csv_safely(followups_csv_for(strategy_version))
-        else:
+        if not light_report_mode:
             should_refresh_followup_prices = (
                 native_fetch
                 and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
@@ -407,14 +413,24 @@ def run_pipeline(
                 and not signal_df.empty
             )
             if should_refresh_followup_prices:
-                followup_refresh_codes.update(
-                    _followup_refresh_codes(
-                        signal_df,
-                        followup_days=followup_days,
-                        strategy_version=strategy_version,
-                    )
+                current_refresh_codes = _followup_refresh_codes(
+                    signal_df,
+                    followup_days=followup_days,
+                    strategy_version=strategy_version,
                 )
+                followup_refresh_codes.update(current_refresh_codes)
+                if current_refresh_codes:
+                    followup_price_cache_stats = warm_stock_price_cache(
+                        sorted(current_refresh_codes),
+                        force_refresh=force_refresh_prices,
+                    )
             followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)
+        else:
+            followup_df = read_csv_safely(followups_csv_for(strategy_version))
+        existing_followup_history = existing_followup_history_frames.get(strategy_version, pd.DataFrame())
+        if not existing_followup_history.empty:
+            followup_df = _merge_history_by_date(existing_followup_history, followup_df)
+        if not light_report_mode:
             save_followups(followup_df, strategy_version=strategy_version)
         followup_frames[strategy_version] = followup_df
         strategy_results[strategy_version]["followups"] = {
@@ -431,15 +447,34 @@ def run_pipeline(
             light_mode=light_report_mode,
         )
 
-    if followup_refresh_codes and not light_report_mode:
-        result["followup_price_cache"] = warm_stock_price_cache(
-            sorted(followup_refresh_codes),
-            force_refresh=force_refresh_prices,
-        )
+    if followup_price_cache_stats is not None:
+        result["followup_price_cache"] = followup_price_cache_stats
 
     result["followups"] = strategy_results.get(default_strategy_version, {}).get("followups", {})
     result["reports"] = strategy_results.get(default_strategy_version, {}).get("reports", {})
     result["strategies"] = strategy_results
+
+    freshness_min_ratio = float(settings.get("settlement_freshness_min_ratio", 0.95))
+    freshness_by_version: dict[str, dict[str, object]] = {}
+    for strategy_version in strategy_versions:
+        freshness_by_version[strategy_version] = build_data_freshness_report(
+            followup_frames.get(strategy_version, pd.DataFrame()),
+            market_regime_df,
+            min_settlement_ratio=freshness_min_ratio,
+        )
+    result["freshness_by_version"] = freshness_by_version
+    result["freshness"] = freshness_by_version.get(default_strategy_version, {})
+
+    freshness_report = result.get("freshness", {}) or {}
+    if not light_report_mode and isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
+        data_block = result.get("data", {})
+        if isinstance(data_block, dict):
+            if data_block.get("status") in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}:
+                data_block["status"] = "stale_settlement"
+            data_block["freshness_status"] = freshness_report.get("status")
+            data_block["reason"] = str(freshness_report.get("summary") or freshness_report.get("reason") or data_block.get("reason") or "")
+            result["data"] = data_block
+            data_status = str(data_block.get("status") or data_status)
 
     should_refresh_intraday_cache = (
         native_fetch

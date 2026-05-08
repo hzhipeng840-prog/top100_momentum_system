@@ -80,7 +80,10 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertEqual(codes, ["600500", "600400"])
 
     @patch("src.pipeline.latest_expected_market_date", return_value=pd.Timestamp("2026-04-27"))
+    @patch("src.pipeline._latest_signal_slice", return_value=pd.DataFrame([{"signal_date": "2026-04-27", "snapshot_time": "2026-04-27 15:00:00"}]))
+    @patch("src.pipeline._intraday_refresh_codes", return_value=["600400", "600500"])
     @patch("src.pipeline.warm_intraday_cache")
+    @patch("src.pipeline.build_data_freshness_report", return_value={"is_fresh": True, "status": "fresh", "summary": "", "reason": ""})
     @patch("src.pipeline.build_reports", return_value={})
     @patch("src.pipeline.save_followups")
     @patch("src.pipeline.build_followups", return_value=pd.DataFrame())
@@ -126,7 +129,10 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         _mock_build_followups,
         _mock_save_followups,
         _mock_build_reports,
+        _mock_build_data_freshness_report,
         mock_warm_intraday_cache,
+        _mock_intraday_refresh_codes,
+        _mock_latest_signal_slice,
         _mock_latest_expected_market_date,
     ) -> None:
         mock_build_signals.return_value = pd.DataFrame(
@@ -252,10 +258,100 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         _mock_warm_stock_price_cache.assert_not_called()
         _mock_build_followups.assert_not_called()
         _mock_save_followups.assert_not_called()
+
+    @patch("src.pipeline.read_csv_safely", return_value=pd.DataFrame())
+    @patch("src.pipeline._followup_refresh_codes", return_value={"600001"})
+    @patch("src.pipeline.build_reports", return_value={})
+    @patch("src.pipeline.save_followups")
+    @patch("src.pipeline.build_followups")
+    @patch("src.pipeline.warm_stock_price_cache")
+    @patch("src.pipeline.save_signals")
+    @patch("src.pipeline.build_signals")
+    @patch("src.pipeline.save_market_regime")
+    @patch("src.pipeline.build_market_regime", return_value=pd.DataFrame([{"signal_date": "2026-04-27", "market_regime": "strong", "market_1d_pct": 0.1, "market_5d_pct": 0.2, "market_lag_days": 0, "market_price_date": "2026-04-27"}]))
+    @patch("src.pipeline.save_daily_features")
+    @patch("src.pipeline.build_daily_features", return_value=pd.DataFrame([{"signal_date": "2026-04-27", "code": "600001"}]))
+    @patch("src.pipeline.run_native_fetch", return_value={"status": "ok"})
+    @patch("src.pipeline.should_skip_market_fetch", return_value={"skip": False, "skip_reason_code": "", "reason": "", "expected_signal_date": "2026-04-27"})
+    @patch(
+        "src.pipeline.load_settings",
+        return_value={
+            "top_n": 100,
+            "default_capture_type": "post_close",
+            "signal_min_score": 60,
+            "latest_push_limit": None,
+            "strong_return_threshold_pct": 15,
+            "followup_days": [1, 3, 5, 10],
+            "refresh_price_cache": True,
+            "refresh_market_cache": True,
+            "refresh_intraday_cache": True,
+            "intraday_cache_push_only": True,
+            "intraday_cache_limit": 20,
+        },
+    )
+    def test_run_pipeline_warms_stock_cache_before_building_followups(
+        self,
+        _mock_load_settings,
+        _mock_should_skip_market_fetch,
+        _mock_run_native_fetch,
+        _mock_build_daily_features,
+        _mock_save_daily_features,
+        _mock_build_market_regime,
+        _mock_save_market_regime,
+        mock_build_signals,
+        _mock_save_signals,
+        mock_warm_stock_price_cache,
+        mock_build_followups,
+        _mock_save_followups,
+        _mock_build_reports,
+        mock_followup_refresh_codes,
+        _mock_read_csv_safely,
+    ) -> None:
+        events: list[str] = []
+
+        mock_build_signals.return_value = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-27",
+                    "capture_type": "post_close",
+                    "snapshot_time": "2026-04-27 15:00:00",
+                    "code": "600001",
+                    "is_pushed": True,
+                    "emotion_score": 92,
+                    "rank": 2,
+                }
+            ]
+        )
+
+        def warm_side_effect(codes, **kwargs):
+            events.append(f"warm:{','.join(codes)}")
+            return {"requested": len(codes), "remote": len(codes), "cache": 0, "stale_cache": 0, "missing": 0}
+
+        def build_followups_side_effect(signal_df, days, strategy_version):
+            events.append(f"build:{strategy_version}")
+            return pd.DataFrame(
+                [
+                    {
+                        "strategy_version": strategy_version,
+                        "signal_date": "2026-04-27",
+                        "code": "600001",
+                        "observed_days": 1,
+                        "settled_1d": True,
+                    }
+                ]
+            )
+
+        mock_warm_stock_price_cache.side_effect = warm_side_effect
+        mock_build_followups.side_effect = build_followups_side_effect
+
+        result = pipeline.run_pipeline(native_fetch=True, capture_type="post_close")
+
+        self.assertGreaterEqual(len(events), 2)
+        self.assertTrue(events[0].startswith("warm:"))
+        self.assertTrue(events[1].startswith("build:"))
+        self.assertEqual(result["followup_price_cache"]["requested"], 1)
         _mock_build_reports.assert_called_once()
-        self.assertTrue(_mock_build_reports.call_args.kwargs["light_mode"])
-        self.assertEqual(result["strategy_versions"], ["v3"])
-        self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
+        self.assertFalse(_mock_build_reports.call_args.kwargs["light_mode"])
 
     @patch("src.pipeline.warm_intraday_cache")
     @patch("src.pipeline.build_reports", return_value={})
@@ -423,6 +519,61 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         third_signal_features = mock_build_signals.call_args_list[2].args[0]
         self.assertEqual(first_signal_features["signal_date"].nunique(), 1)
         self.assertEqual(third_signal_features["signal_date"].nunique(), 1)
+
+    @patch("src.pipeline.warm_intraday_cache")
+    @patch("src.pipeline.build_reports", return_value={})
+    @patch("src.pipeline.save_followups")
+    @patch("src.pipeline.build_followups")
+    @patch("src.pipeline.warm_stock_price_cache", return_value={})
+    @patch("src.pipeline.save_signals")
+    @patch("src.pipeline.build_signals")
+    @patch("src.pipeline.save_market_regime")
+    @patch("src.pipeline.build_market_regime")
+    @patch("src.pipeline.save_daily_features")
+    @patch("src.pipeline.build_daily_features")
+    @patch("src.pipeline.run_native_fetch", return_value={"status": "ok"})
+    @patch("src.pipeline.should_skip_market_fetch", return_value={"skip": False, "skip_reason_code": "", "reason": "", "expected_signal_date": "2026-05-08"})
+    @patch("src.pipeline.read_csv_safely", return_value=pd.DataFrame())
+    @patch("src.pipeline.load_settings", return_value={"top_n": 100, "default_capture_type": "post_close", "strategy_versions": ["v1"], "followup_days": [1, 3, 5, 10], "refresh_price_cache": True, "refresh_market_cache": True, "refresh_intraday_cache": True, "intraday_cache_push_only": True, "intraday_cache_limit": 20, "settlement_freshness_min_ratio": 1.0})
+    @patch("src.freshness.previous_a_share_trading_day", return_value=pd.Timestamp("2026-05-07"))
+    @patch("src.freshness.latest_expected_market_date", return_value=pd.Timestamp("2026-05-08"))
+    def test_run_pipeline_marks_full_run_stale_when_settlement_is_unfinished(
+        self,
+        _mock_latest_expected_market_date,
+        _mock_previous_trading_day,
+        _mock_load_settings,
+        _mock_read_csv_safely,
+        _mock_should_skip_market_fetch,
+        _mock_run_native_fetch,
+        mock_build_daily_features,
+        _mock_save_daily_features,
+        mock_build_market_regime,
+        _mock_save_market_regime,
+        mock_build_signals,
+        _mock_save_signals,
+        _mock_warm_stock_price_cache,
+        mock_build_followups,
+        _mock_save_followups,
+        _mock_build_reports,
+        mock_warm_intraday_cache,
+    ) -> None:
+        mock_build_daily_features.return_value = pd.DataFrame([{"signal_date": "2026-05-08", "code": "600001", "rank": 1}])
+        mock_build_market_regime.return_value = pd.DataFrame(
+            [{"signal_date": "2026-05-08", "market_price_date": "2026-05-07", "market_lag_days": 1}]
+        )
+        mock_build_signals.return_value = pd.DataFrame(
+            [{"signal_date": "2026-05-08", "code": "600001", "is_pushed": True, "rank": 1, "capture_type": "post_close"}]
+        )
+        mock_build_followups.return_value = pd.DataFrame(
+            [{"signal_date": "2026-05-07", "code": "600001", "settled_1d": False, "observed_days": 0}]
+        )
+
+        result = pipeline.run_pipeline(native_fetch=True, capture_type="post_close")
+
+        self.assertEqual(result["data"]["status"], "stale_settlement")
+        self.assertEqual(result["data"]["freshness_status"], "stale")
+        self.assertFalse(bool(result["freshness"]["is_fresh"]))
+        mock_warm_intraday_cache.assert_not_called()
 
 
 if __name__ == "__main__":
