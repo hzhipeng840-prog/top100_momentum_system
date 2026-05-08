@@ -73,7 +73,7 @@ def get_strategy_profile(version: object) -> dict[str, object]:
 def available_strategy_versions(settings: dict | None = None) -> list[str]:
     configured = settings.get("strategy_versions") if isinstance(settings, dict) else None
     if not isinstance(configured, list) or not configured:
-        return list(STRATEGY_PROFILES.keys())
+        return ["v1", "v2", "v3"]
 
     versions: list[str] = []
     for version in configured:

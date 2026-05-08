@@ -1,7 +1,4 @@
 ﻿lesson_type,sample_count,valid_latest,avg_latest_return_pct,win_rate_latest_pct,valid_3d,avg_3d_return_pct,win_rate_3d_pct,valid_5d,avg_5d_return_pct,win_rate_5d_pct,valid_max_gain_5d,avg_max_gain_5d_pct,strong_rate_5d_pct,strategy_version
-neutral,63,63,6.45,90.48,0,,,0,,,0,,,v1
-priority_failed,16,16,-6.17,0.0,0,,,0,,,0,,,v1
-low_level_winner,14,14,19.62,100.0,2,-1.48,0.0,2,11.91,100.0,2,13.08,0.0,v1
-priority_success,9,9,19.85,100.0,1,-1.24,0.0,1,11.93,100.0,1,14.26,0.0,v1
-pending,7,0,,,0,,,0,,,0,,,v1
-backup_success,5,5,18.49,100.0,0,,,0,,,0,,,v1
+pending,70,0,,,0,,,0,,,0,,,v1
+priority_failed,18,18,-3.05,0.0,0,,,0,,,0,,,v1
+neutral,12,12,5.44,91.67,0,,,0,,,0,,,v1

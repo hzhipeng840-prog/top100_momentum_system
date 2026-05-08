@@ -249,6 +249,9 @@ def run_pipeline(
     ensure_layout()
     resolved_capture_type = capture_type or str(settings.get("default_capture_type", "post_close"))
     strategy_versions, default_strategy_version = _resolve_strategy_versions(settings, capture_type=capture_type)
+    full_capture_mode = resolved_capture_type == "post_close"
+    if full_capture_mode:
+        strategy_versions = available_strategy_versions(settings)
 
     result: dict[str, object] = {
         "started_at": datetime.now().isoformat(timespec="seconds"),
@@ -377,15 +380,18 @@ def run_pipeline(
         strategy_version: read_csv_safely(signals_csv_for(strategy_version)) for strategy_version in strategy_versions
     }
     for strategy_version in strategy_versions:
-        signal_df = build_signals(
-            feature_frames[strategy_version],
-            min_score=min_score,
-            market_regime_df=market_regime_df,
-            strategy_version=strategy_version,
-        )
         existing_signal_history = existing_signal_history_frames.get(strategy_version, pd.DataFrame())
-        if not existing_signal_history.empty:
-            signal_df = _merge_history_by_date(existing_signal_history, signal_df)
+        if full_capture_mode and strategy_version != default_strategy_version and not existing_signal_history.empty:
+            signal_df = existing_signal_history.copy()
+        else:
+            signal_df = build_signals(
+                feature_frames[strategy_version],
+                min_score=min_score,
+                market_regime_df=market_regime_df,
+                strategy_version=strategy_version,
+            )
+            if not existing_signal_history.empty:
+                signal_df = _merge_history_by_date(existing_signal_history, signal_df)
         save_signals(signal_df, strategy_version=strategy_version)
         signal_frames[strategy_version] = signal_df
         strategy_results[strategy_version]["signals"] = {

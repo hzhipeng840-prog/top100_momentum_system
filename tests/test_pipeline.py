@@ -155,7 +155,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
-        self.assertEqual(result["strategy_versions"], ["v1"])
+        self.assertEqual(result["strategy_versions"], ["v1", "v2", "v3"])
         self.assertEqual(result["intraday_cache"], {"requested": 2})
 
     @patch("src.pipeline.warm_intraday_cache")
@@ -350,7 +350,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertTrue(events[0].startswith("warm:"))
         self.assertTrue(events[1].startswith("build:"))
         self.assertEqual(result["followup_price_cache"]["requested"], 1)
-        _mock_build_reports.assert_called_once()
+        self.assertEqual(_mock_build_reports.call_count, 3)
         self.assertFalse(_mock_build_reports.call_args.kwargs["light_mode"])
 
     @patch("src.pipeline.warm_intraday_cache")
