@@ -162,7 +162,8 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
     @patch("src.pipeline.save_market_regime")
     @patch("src.pipeline.build_market_regime", return_value=pd.DataFrame())
     @patch("src.pipeline.save_daily_features")
-    @patch("src.pipeline.build_daily_features", return_value=pd.DataFrame())
+    @patch("src.pipeline.build_latest_daily_features", return_value=pd.DataFrame())
+    @patch("src.pipeline.read_csv_safely", return_value=pd.DataFrame())
     @patch(
         "src.pipeline.load_popularity",
         return_value=pd.DataFrame(
@@ -214,7 +215,8 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         _mock_should_skip_market_fetch,
         _mock_run_native_fetch,
         _mock_load_popularity,
-        _mock_build_daily_features,
+        _mock_read_csv_safely,
+        _mock_build_latest_daily_features,
         _mock_save_daily_features,
         _mock_build_market_regime,
         _mock_save_market_regime,
@@ -230,6 +232,13 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
 
         result = pipeline.run_pipeline(native_fetch=True, capture_type="intraday_1430")
 
+        _mock_run_native_fetch.assert_called_once_with(
+            capture_type="intraday_1430",
+            snapshot_time=None,
+            top_n=100,
+            refresh_prices=False,
+            force_refresh_prices=False,
+        )
         mock_warm_intraday_cache.assert_called_once_with(
             ["600001", "600002"],
             trade_date="2026-04-28",
@@ -258,7 +267,8 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
     @patch("src.pipeline.save_market_regime")
     @patch("src.pipeline.build_market_regime", return_value=pd.DataFrame())
     @patch("src.pipeline.save_daily_features")
-    @patch("src.pipeline.build_daily_features", return_value=pd.DataFrame())
+    @patch("src.pipeline.build_latest_daily_features", return_value=pd.DataFrame())
+    @patch("src.pipeline.read_csv_safely", return_value=pd.DataFrame())
     @patch(
         "src.pipeline.load_popularity",
         return_value=pd.DataFrame(
@@ -310,7 +320,8 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         _mock_should_skip_market_fetch,
         _mock_run_native_fetch,
         _mock_load_popularity,
-        _mock_build_daily_features,
+        _mock_read_csv_safely,
+        _mock_build_latest_daily_features,
         _mock_save_daily_features,
         _mock_build_market_regime,
         _mock_save_market_regime,
@@ -326,6 +337,13 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
 
         result = pipeline.run_pipeline(native_fetch=True, capture_type="intraday_0950")
 
+        _mock_run_native_fetch.assert_called_once_with(
+            capture_type="intraday_0950",
+            snapshot_time=None,
+            top_n=100,
+            refresh_prices=False,
+            force_refresh_prices=False,
+        )
         mock_warm_intraday_cache.assert_called_once_with(
             ["600001", "600002"],
             trade_date="2026-04-28",
@@ -373,7 +391,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
     def test_run_pipeline_reuses_existing_feature_history_when_popularity_is_sparse(
         self,
         _mock_load_settings,
-        mock_read_csv_safely,
+        _mock_read_csv_safely,
         _mock_load_popularity,
         _mock_build_daily_features,
         mock_save_daily_features,
@@ -395,7 +413,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         def fake_read(path):
             return existing_feature_history if str(path).endswith("daily_features.csv") else pd.DataFrame()
 
-        mock_read_csv_safely.side_effect = fake_read
+        _mock_read_csv_safely.side_effect = fake_read
 
         pipeline.run_pipeline(native_fetch=False)
 
@@ -403,8 +421,8 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertEqual(saved_feature_df["signal_date"].nunique(), 2)
         first_signal_features = mock_build_signals.call_args_list[0].args[0]
         third_signal_features = mock_build_signals.call_args_list[2].args[0]
-        self.assertEqual(first_signal_features["signal_date"].nunique(), 2)
-        self.assertEqual(third_signal_features["signal_date"].nunique(), 2)
+        self.assertEqual(first_signal_features["signal_date"].nunique(), 1)
+        self.assertEqual(third_signal_features["signal_date"].nunique(), 1)
 
 
 if __name__ == "__main__":

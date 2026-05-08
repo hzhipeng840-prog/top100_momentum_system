@@ -484,7 +484,7 @@ def _feature_for_signal_row(
     return _feature_for_price_date(price_df, str(row.get("signal_date")))
 
 
-def build_daily_features(
+def _selected_popularity_with_stats(
     popularity_df: pd.DataFrame | None = None,
     strategy_version: str = DEFAULT_STRATEGY_VERSION,
 ) -> pd.DataFrame:
@@ -493,13 +493,21 @@ def build_daily_features(
     if base_df.empty:
         return pd.DataFrame(columns=FEATURE_COLUMNS)
 
-    base_df = select_strategy_snapshots(base_df, strategy_version=strategy_version)
-    base_df = add_appearance_stats(base_df)
-    use_intraday_features = base_df["capture_type"].fillna("").astype(str).str.startswith("intraday_").any()
+    selected = select_strategy_snapshots(base_df, strategy_version=strategy_version)
+    if selected.empty:
+        return pd.DataFrame(columns=FEATURE_COLUMNS)
+    return add_appearance_stats(selected)
+
+
+def _build_feature_rows(selected_df: pd.DataFrame) -> pd.DataFrame:
+    if selected_df.empty:
+        return pd.DataFrame(columns=FEATURE_COLUMNS)
+
+    use_intraday_features = selected_df["capture_type"].fillna("").astype(str).str.startswith("intraday_").any()
     intraday_snapshot_df = load_intraday_snapshots() if use_intraday_features else pd.DataFrame()
     price_cache: dict[str, pd.DataFrame] = {}
     rows: list[dict] = []
-    for _, row in base_df.iterrows():
+    for _, row in selected_df.iterrows():
         code = normalize_code(row.get("code"))
         if code not in price_cache:
             price_cache[code] = load_price_data(code)
@@ -519,6 +527,27 @@ def build_daily_features(
         if column not in feature_df.columns:
             feature_df[column] = None
     return feature_df[FEATURE_COLUMNS].sort_values(["signal_date", "rank"], na_position="last").reset_index(drop=True)
+
+
+def build_daily_features(
+    popularity_df: pd.DataFrame | None = None,
+    strategy_version: str = DEFAULT_STRATEGY_VERSION,
+) -> pd.DataFrame:
+    selected_df = _selected_popularity_with_stats(popularity_df=popularity_df, strategy_version=strategy_version)
+    return _build_feature_rows(selected_df)
+
+
+def build_latest_daily_features(
+    popularity_df: pd.DataFrame | None = None,
+    strategy_version: str = DEFAULT_STRATEGY_VERSION,
+) -> pd.DataFrame:
+    selected_df = _selected_popularity_with_stats(popularity_df=popularity_df, strategy_version=strategy_version)
+    if selected_df.empty:
+        return pd.DataFrame(columns=FEATURE_COLUMNS)
+
+    latest_date = selected_df["signal_date"].dropna().astype(str).max()
+    latest_df = selected_df[selected_df["signal_date"].astype(str).eq(str(latest_date))].copy()
+    return _build_feature_rows(latest_df)
 
 
 def save_daily_features(feature_df: pd.DataFrame) -> None:

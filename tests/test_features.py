@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.features import build_daily_features, select_strategy_snapshots
+from src.features import build_daily_features, build_latest_daily_features, select_strategy_snapshots
 
 
 class FeatureSelectionTest(unittest.TestCase):
@@ -254,6 +254,47 @@ class FeatureSelectionTest(unittest.TestCase):
         self.assertEqual(row["price_date"], "2026-04-28")
         self.assertAlmostEqual(float(row["close"]), 10.8, places=6)
         self.assertAlmostEqual(float(row["day_return_pct"]), 8.0, places=6)
+
+    @patch("src.features.load_price_data")
+    def test_build_latest_daily_features_only_returns_latest_date(self, mock_load_price_data) -> None:
+        popularity_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-04-27",
+                    "rank": 2,
+                    "code": "600001",
+                    "name": "older",
+                    "popularity_score": 80,
+                    "source": "10jqka",
+                    "capture_type": "post_close",
+                    "snapshot_time": "2026-04-27 15:00:00",
+                },
+                {
+                    "signal_date": "2026-04-28",
+                    "rank": 1,
+                    "code": "600001",
+                    "name": "latest",
+                    "popularity_score": 90,
+                    "source": "10jqka",
+                    "capture_type": "post_close",
+                    "snapshot_time": "2026-04-28 15:00:00",
+                },
+            ]
+        )
+        mock_load_price_data.return_value = pd.DataFrame(
+            [
+                {"date": pd.Timestamp("2026-04-24"), "open": 9.0, "close": 9.1, "high": 9.2, "low": 8.9, "volume": 100},
+                {"date": pd.Timestamp("2026-04-25"), "open": 9.2, "close": 9.3, "high": 9.4, "low": 9.1, "volume": 110},
+                {"date": pd.Timestamp("2026-04-28"), "open": 9.5, "close": 10.0, "high": 10.2, "low": 9.4, "volume": 120},
+            ]
+        )
+
+        result = build_latest_daily_features(popularity_df=popularity_df, strategy_version="v1")
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0]["signal_date"], "2026-04-28")
+        self.assertEqual(int(result.iloc[0]["appearance_count"]), 2)
+        self.assertEqual(int(result.iloc[0]["consecutive_days"]), 2)
 
 
 if __name__ == "__main__":

@@ -4,12 +4,12 @@ from datetime import datetime
 
 import pandas as pd
 
-from src.features import build_daily_features, load_popularity, save_daily_features
+from src.features import build_daily_features, build_latest_daily_features, load_popularity, save_daily_features
 from src.followups import build_followups, save_followups
 from src.intraday_fetcher import warm_intraday_cache
 from src.market_regime import build_market_regime, save_market_regime, warm_market_index_cache
 from src.native_fetcher import run_native_fetch, warm_stock_price_cache
-from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for, followups_csv_for
+from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for, followups_csv_for, signals_csv_for
 from src.reports import build_reports
 from src.settings import load_settings
 from src.signals import build_signals, save_signals
@@ -179,15 +179,15 @@ def _resolve_strategy_versions(settings: dict, capture_type: str | None = None) 
     return versions, default_version
 
 
-def _merge_feature_history(existing_feature_df: pd.DataFrame, fresh_feature_df: pd.DataFrame) -> pd.DataFrame:
-    if existing_feature_df.empty:
-        return fresh_feature_df.copy()
-    if fresh_feature_df.empty:
-        return existing_feature_df.copy()
+def _merge_history_by_date(existing_df: pd.DataFrame, fresh_df: pd.DataFrame) -> pd.DataFrame:
+    if existing_df.empty:
+        return fresh_df.copy()
+    if fresh_df.empty:
+        return existing_df.copy()
 
-    combined = pd.concat([existing_feature_df.copy(), fresh_feature_df.copy()], ignore_index=True)
+    combined = pd.concat([existing_df.copy(), fresh_df.copy()], ignore_index=True)
     if "signal_date" not in combined.columns or "code" not in combined.columns:
-        return fresh_feature_df.copy()
+        return fresh_df.copy()
 
     combined["signal_date"] = pd.to_datetime(combined["signal_date"], errors="coerce").dt.strftime("%Y-%m-%d")
     combined["code"] = combined["code"].astype(str).map(normalize_code)
@@ -203,6 +203,10 @@ def _merge_feature_history(existing_feature_df: pd.DataFrame, fresh_feature_df: 
     combined = combined.sort_values(["signal_date", "snapshot_time", "rank"], na_position="last")
     combined = combined.drop_duplicates(["signal_date", "code"], keep="last")
     return combined.sort_values(["signal_date", "rank"], na_position="last").reset_index(drop=True)
+
+
+def _merge_feature_history(existing_feature_df: pd.DataFrame, fresh_feature_df: pd.DataFrame) -> pd.DataFrame:
+    return _merge_history_by_date(existing_feature_df, fresh_feature_df)
 
 
 def _latest_popularity_slice(capture_type: str | None = None) -> pd.DataFrame:
@@ -251,6 +255,8 @@ def run_pipeline(
         "strategy_versions": strategy_versions,
         "default_strategy_version": default_strategy_version,
     }
+    light_report_capture_types = {"intraday_0935", "intraday_0950", "intraday_1030", "morning_capture", "intraday_1430", "tail_capture"}
+    light_report_mode = resolved_capture_type in light_report_capture_types
 
     if native_fetch:
         fetch_guard = should_skip_market_fetch(resolved_capture_type)
@@ -268,7 +274,7 @@ def run_pipeline(
                 capture_type=resolved_capture_type,
                 snapshot_time=snapshot_time,
                 top_n=int(settings.get("top_n", 100)),
-                refresh_prices=bool(settings.get("refresh_price_cache", True)),
+                refresh_prices=bool(settings.get("refresh_price_cache", True)) and not light_report_mode,
                 force_refresh_prices=force_refresh_prices,
             )
     else:
@@ -305,22 +311,28 @@ def run_pipeline(
     popularity_df = load_popularity()
     strategy_results: dict[str, dict[str, object]] = {}
     feature_frames: dict[str, pd.DataFrame] = {}
+    feature_history_frames: dict[str, pd.DataFrame] = {}
     existing_feature_history = read_csv_safely(FEATURES_CSV)
-    shared_feature_history = pd.DataFrame()
     for strategy_version in strategy_versions:
-        feature_df = build_daily_features(
-            popularity_df=popularity_df,
-            strategy_version=strategy_version,
-        )
-        if strategy_version == default_strategy_version:
-            feature_df = _merge_feature_history(existing_feature_history, feature_df)
-            shared_feature_history = feature_df.copy()
-        elif not shared_feature_history.empty:
-            current_date_count = feature_df["signal_date"].nunique() if not feature_df.empty and "signal_date" in feature_df.columns else 0
-            shared_date_count = shared_feature_history["signal_date"].nunique() if "signal_date" in shared_feature_history.columns else 0
-            if current_date_count < shared_date_count:
-                feature_df = shared_feature_history.copy()
+        if light_report_mode:
+            feature_df = build_latest_daily_features(
+                popularity_df=popularity_df,
+                strategy_version=strategy_version,
+            )
+            feature_history_df = feature_df.copy()
+        else:
+            feature_history_df = build_daily_features(
+                popularity_df=popularity_df,
+                strategy_version=strategy_version,
+            )
+            feature_df = feature_history_df.copy()
+
+        if strategy_version == default_strategy_version and not existing_feature_history.empty:
+            feature_history_df = _merge_feature_history(existing_feature_history, feature_history_df)
+            existing_feature_history = feature_history_df.copy()
+
         feature_frames[strategy_version] = feature_df
+        feature_history_frames[strategy_version] = feature_history_df
         strategy_results[strategy_version] = {
             "features": {
                 "rows": len(feature_df),
@@ -330,7 +342,7 @@ def run_pipeline(
             }
         }
 
-    default_feature_df = feature_frames.get(default_strategy_version, pd.DataFrame())
+    default_feature_df = feature_history_frames.get(default_strategy_version, pd.DataFrame())
     save_daily_features(default_feature_df)
     result["features"] = strategy_results.get(default_strategy_version, {}).get("features", {})
 
@@ -358,8 +370,6 @@ def run_pipeline(
     followup_days = list(settings.get("followup_days", [1, 3, 5, 10]))
     latest_push_limit = _optional_positive_int(settings.get("latest_push_limit"))
     strong_threshold = float(settings.get("strong_return_threshold_pct", 15))
-    light_report_capture_types = {"intraday_0935", "intraday_0950", "intraday_1030", "morning_capture", "intraday_1430", "tail_capture"}
-    light_report_mode = resolved_capture_type in light_report_capture_types
 
     signal_frames: dict[str, pd.DataFrame] = {}
     for strategy_version in strategy_versions:
@@ -369,6 +379,9 @@ def run_pipeline(
             market_regime_df=market_regime_df,
             strategy_version=strategy_version,
         )
+        if light_report_mode:
+            existing_signal_history = read_csv_safely(signals_csv_for(strategy_version))
+            signal_df = _merge_feature_history(existing_signal_history, signal_df)
         save_signals(signal_df, strategy_version=strategy_version)
         signal_frames[strategy_version] = signal_df
         strategy_results[strategy_version]["signals"] = {
