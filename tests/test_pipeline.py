@@ -240,6 +240,11 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
+        _mock_warm_stock_price_cache.assert_not_called()
+        _mock_build_followups.assert_not_called()
+        _mock_save_followups.assert_not_called()
+        _mock_build_reports.assert_called_once()
+        self.assertTrue(_mock_build_reports.call_args.kwargs["light_mode"])
         self.assertEqual(result["strategy_versions"], ["v3"])
         self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
 
@@ -331,6 +336,11 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
+        _mock_warm_stock_price_cache.assert_not_called()
+        _mock_build_followups.assert_not_called()
+        _mock_save_followups.assert_not_called()
+        _mock_build_reports.assert_called_once()
+        self.assertTrue(_mock_build_reports.call_args.kwargs["light_mode"])
         self.assertEqual(result["strategy_versions"], ["v2"])
         self.assertEqual(result["intraday_feature_cache"], {"requested": 2})
 

@@ -1101,6 +1101,7 @@ def build_reports(
     latest_push_limit: int | None = None,
     strong_return_threshold_pct: float = 15,
     strategy_version: str = DEFAULT_STRATEGY_VERSION,
+    light_mode: bool = False,
 ) -> dict:
     strategy_version = normalize_strategy_version(strategy_version)
     signal_df = read_csv_safely(signals_csv_for(strategy_version)) if signal_df is None else signal_df.copy()
@@ -1116,6 +1117,47 @@ def build_reports(
     backtest_summary_path = backtest_summary_csv_for(strategy_version)
 
     latest_push_df = build_latest_push(signal_df, limit=latest_push_limit)
+    if light_mode:
+        cached_followup_df = followup_df
+        if cached_followup_df.empty:
+            cached_followup_df = read_csv_safely(followups_csv_for(strategy_version))
+
+        fast_strategy_df = build_fast_strategy(signal_df, cached_followup_df, strategy_version=strategy_version)
+        fast_strategy_history_df = update_fast_strategy_history(
+            fast_strategy_df,
+            signal_df=signal_df,
+            history_path=fast_strategy_history_path,
+        )
+        fast_strategy_df = _locked_current_fast_strategy(fast_strategy_df, fast_strategy_history_df)
+
+        for frame in [latest_push_df, fast_strategy_df]:
+            if not frame.empty or "strategy_version" not in frame.columns:
+                frame["strategy_version"] = strategy_version
+
+        write_csv(latest_push_df, latest_push_path)
+        write_csv(fast_strategy_df, fast_strategy_path)
+
+        return {
+            "strategy_version": strategy_version,
+            "report_mode": "light",
+            "latest_push_rows": len(latest_push_df),
+            "fast_strategy_rows": len(fast_strategy_df),
+            "fast_strategy_history_rows": len(fast_strategy_history_df),
+            "fast_strategy_audit_rows": 0,
+            "strong_recap_rows": 0,
+            "rule_evaluation_rows": 0,
+            "backtest_summary_rows": 0,
+            "lesson_evaluation_rows": 0,
+            "latest_push_path": str(latest_push_path),
+            "fast_strategy_path": str(fast_strategy_path),
+            "fast_strategy_history_path": str(fast_strategy_history_path),
+            "fast_strategy_audit_path": str(fast_strategy_audit_path),
+            "strong_recap_path": str(strong_recap_path),
+            "rule_evaluation_path": str(rule_evaluation_path),
+            "backtest_summary_path": str(backtest_summary_path),
+            "lesson_evaluation_path": str(lesson_evaluation_path),
+        }
+
     fast_strategy_df = build_fast_strategy(signal_df, followup_df, strategy_version=strategy_version)
     fast_strategy_history_df = update_fast_strategy_history(
         fast_strategy_df,
@@ -1157,6 +1199,7 @@ def build_reports(
 
     return {
         "strategy_version": strategy_version,
+        "report_mode": "full",
         "latest_push_rows": len(latest_push_df),
         "fast_strategy_rows": len(fast_strategy_df),
         "fast_strategy_history_rows": len(fast_strategy_history_df),

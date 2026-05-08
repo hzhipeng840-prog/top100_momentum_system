@@ -4,7 +4,9 @@ import unittest
 
 import pandas as pd
 
-from src.reports import _fill_missing_market_context, build_latest_push, build_rule_evaluation, build_strong_recap
+from unittest.mock import patch
+
+from src.reports import _fill_missing_market_context, build_latest_push, build_reports, build_rule_evaluation, build_strong_recap
 
 
 class ReportsMarketAuditTest(unittest.TestCase):
@@ -188,6 +190,86 @@ class ReportsMarketAuditTest(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertEqual(float(result.iloc[0]["best_return_available"]), 18.0)
+
+    @patch("src.reports.write_csv")
+    @patch("src.reports.run_backtest_service")
+    @patch("src.reports.build_lesson_evaluation")
+    @patch("src.reports.build_strong_recap")
+    @patch("src.reports.build_fast_strategy_audit")
+    @patch("src.reports.update_fast_strategy_history")
+    @patch("src.reports.build_fast_strategy")
+    def test_build_reports_light_mode_skips_heavy_reports(
+        self,
+        mock_build_fast_strategy,
+        mock_update_fast_strategy_history,
+        mock_build_fast_strategy_audit,
+        mock_build_strong_recap,
+        mock_build_lesson_evaluation,
+        mock_run_backtest_service,
+        mock_write_csv,
+    ) -> None:
+        signal_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-05-08",
+                    "code": "000001",
+                    "name": "Light",
+                    "rank": 1,
+                    "push_level": "强推观察",
+                    "emotion_score": 90,
+                    "is_pushed": True,
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-05-08 09:50:00",
+                }
+            ]
+        )
+        followup_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-05-01",
+                    "code": "000001",
+                    "observed_days": 3,
+                    "latest_return_pct": 8.0,
+                    "settled_3d": True,
+                }
+            ]
+        )
+        fast_strategy_df = pd.DataFrame(
+            [
+                {
+                    "strategy_date": "2026-05-08",
+                    "training_date": "2026-05-01",
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-05-08 09:50:00",
+                    "code": "000001",
+                    "name": "Light",
+                    "fast_score": 88.0,
+                    "rank": 1,
+                }
+            ]
+        )
+        mock_build_fast_strategy.return_value = fast_strategy_df
+        mock_update_fast_strategy_history.return_value = fast_strategy_df
+
+        result = build_reports(
+            signal_df=signal_df,
+            followup_df=followup_df,
+            strategy_version="v2",
+            light_mode=True,
+        )
+
+        mock_build_fast_strategy.assert_called_once()
+        mock_update_fast_strategy_history.assert_called_once()
+        mock_build_fast_strategy_audit.assert_not_called()
+        mock_build_strong_recap.assert_not_called()
+        mock_build_lesson_evaluation.assert_not_called()
+        mock_run_backtest_service.assert_not_called()
+        self.assertEqual(result["report_mode"], "light")
+        self.assertEqual(result["fast_strategy_rows"], 1)
+        self.assertEqual(result["latest_push_rows"], 1)
+        self.assertEqual(result["fast_strategy_audit_rows"], 0)
+        self.assertEqual(result["rule_evaluation_rows"], 0)
+        self.assertTrue(mock_write_csv.called)
 
 
 if __name__ == "__main__":

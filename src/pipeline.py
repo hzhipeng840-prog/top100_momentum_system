@@ -358,6 +358,8 @@ def run_pipeline(
     followup_days = list(settings.get("followup_days", [1, 3, 5, 10]))
     latest_push_limit = _optional_positive_int(settings.get("latest_push_limit"))
     strong_threshold = float(settings.get("strong_return_threshold_pct", 15))
+    light_report_capture_types = {"intraday_0935", "intraday_0950", "intraday_1030", "morning_capture", "intraday_1430", "tail_capture"}
+    light_report_mode = resolved_capture_type in light_report_capture_types
 
     signal_frames: dict[str, pd.DataFrame] = {}
     for strategy_version in strategy_versions:
@@ -377,37 +379,35 @@ def run_pipeline(
     default_signal_df = signal_frames.get(default_strategy_version, pd.DataFrame())
     result["signals"] = strategy_results.get(default_strategy_version, {}).get("signals", {})
 
-    should_refresh_followup_prices = (
-        native_fetch
-        and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
-        and skip_reason_code not in {"holiday", "weekend"}
-        and bool(settings.get("refresh_price_cache", True))
-        and any(not frame.empty for frame in signal_frames.values())
-    )
-    if should_refresh_followup_prices:
-        refresh_codes: set[str] = set()
-        for strategy_version, signal_df in signal_frames.items():
-            refresh_codes.update(
-                _followup_refresh_codes(
-                    signal_df,
-                    followup_days=followup_days,
-                    strategy_version=strategy_version,
-                )
-            )
-        result["followup_price_cache"] = warm_stock_price_cache(
-            sorted(refresh_codes),
-            force_refresh=force_refresh_prices,
-        )
-
     followup_frames: dict[str, pd.DataFrame] = {}
+    followup_refresh_codes: set[str] = set()
     for strategy_version in strategy_versions:
         signal_df = signal_frames[strategy_version]
-        followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)
-        save_followups(followup_df, strategy_version=strategy_version)
+        if light_report_mode:
+            followup_df = read_csv_safely(followups_csv_for(strategy_version))
+        else:
+            should_refresh_followup_prices = (
+                native_fetch
+                and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
+                and skip_reason_code not in {"holiday", "weekend"}
+                and bool(settings.get("refresh_price_cache", True))
+                and not signal_df.empty
+            )
+            if should_refresh_followup_prices:
+                followup_refresh_codes.update(
+                    _followup_refresh_codes(
+                        signal_df,
+                        followup_days=followup_days,
+                        strategy_version=strategy_version,
+                    )
+                )
+            followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)
+            save_followups(followup_df, strategy_version=strategy_version)
         followup_frames[strategy_version] = followup_df
         strategy_results[strategy_version]["followups"] = {
             "rows": len(followup_df),
             "latest_observed_days": int(followup_df["observed_days"].max()) if not followup_df.empty and "observed_days" in followup_df.columns else 0,
+            "mode": "cached" if light_report_mode else "fresh",
         }
         strategy_results[strategy_version]["reports"] = build_reports(
             signal_df=signal_df,
@@ -415,9 +415,15 @@ def run_pipeline(
             latest_push_limit=latest_push_limit,
             strong_return_threshold_pct=strong_threshold,
             strategy_version=strategy_version,
+            light_mode=light_report_mode,
         )
 
-    default_followup_df = followup_frames.get(default_strategy_version, pd.DataFrame())
+    if followup_refresh_codes and not light_report_mode:
+        result["followup_price_cache"] = warm_stock_price_cache(
+            sorted(followup_refresh_codes),
+            force_refresh=force_refresh_prices,
+        )
+
     result["followups"] = strategy_results.get(default_strategy_version, {}).get("followups", {})
     result["reports"] = strategy_results.get(default_strategy_version, {}).get("reports", {})
     result["strategies"] = strategy_results
