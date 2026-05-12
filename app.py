@@ -29,7 +29,7 @@ from src.backtest_queries import (
 from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend
 from src.freshness import build_data_freshness_report
 from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
-from src.paths import FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
+from src.paths import FEATURES_CSV, FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
 from src.pipeline import run_pipeline
 from src.settings import load_settings
 from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label
@@ -92,18 +92,28 @@ st.markdown(
         }
         div[data-baseweb="select"] input {
             color: #0f172a !important;
-            font-weight: 600 !important;
+            font-family: inherit !important;
+            font-size: 0.98rem !important;
+            font-weight: 500 !important;
             -webkit-text-fill-color: #0f172a !important;
-            line-height: 1.15 !important;
+            line-height: 1.2 !important;
             text-align: left !important;
             margin: 0 !important;
             padding: 0 !important;
+            text-rendering: optimizeLegibility !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
         }
         div[data-baseweb="select"] span {
             color: #0f172a !important;
-            font-weight: 600 !important;
-            line-height: 1.15 !important;
+            font-family: inherit !important;
+            font-size: 0.98rem !important;
+            font-weight: 500 !important;
+            line-height: 1.2 !important;
             text-align: left !important;
+            text-rendering: optimizeLegibility !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
         }
         div[data-baseweb="select"] svg {
             margin-top: 0 !important;
@@ -117,15 +127,22 @@ st.markdown(
         }
         div[data-baseweb="popover"] [role="option"] {
             color: #0f172a !important;
-            font-weight: 550 !important;
+            font-family: inherit !important;
+            font-size: 0.98rem !important;
+            font-weight: 500 !important;
+            line-height: 1.2 !important;
             border-radius: 10px !important;
+            min-height: 2.55rem !important;
+            text-rendering: optimizeLegibility !important;
+            -webkit-font-smoothing: antialiased !important;
+            -moz-osx-font-smoothing: grayscale !important;
         }
         div[data-baseweb="popover"] [role="option"][aria-selected="true"] {
-            background: #e8eef9 !important;
+            background: #e4ecfb !important;
             color: #0f172a !important;
         }
         div[data-baseweb="popover"] [role="option"]:hover {
-            background: #f3f6fb !important;
+            background: #eef4fd !important;
         }
     </style>
     """,
@@ -1116,19 +1133,55 @@ def is_priority_focus(row: pd.Series, candidate_hit: str) -> str:
     return "是" if str(row.get("push_level", "")) in {"强推观察", "重点观察"} else "否"
 
 
-def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, strategy_version: str) -> pd.DataFrame:
-    if push_df.empty:
+def is_execution_priority_focus(row: pd.Series, candidate_hit: str) -> str:
+    if candidate_hit != "是":
+        return "否"
+    if str(row.get("push_level", "")) in {"强推观察", "重点观察"}:
+        return "是"
+    return "是" if str(row.get("fast_level", "")) == "下个交易日主盯" else "否"
+
+
+def build_fast_execution_fallback_df(fast_df: pd.DataFrame) -> pd.DataFrame:
+    if fast_df.empty:
         return pd.DataFrame()
 
+    working_df = fast_df.copy()
+    if "fast_level" in working_df.columns:
+        main_watch_df = working_df[working_df["fast_level"].astype(str).eq("下个交易日主盯")].copy()
+        if not main_watch_df.empty:
+            return main_watch_df.reset_index(drop=True)
+        fallback_df = working_df[
+            working_df["fast_level"].astype(str).isin(["优先观察", "备选观察"])
+        ].copy()
+        if not fallback_df.empty:
+            return fallback_df.reset_index(drop=True)
+    return working_df.reset_index(drop=True)
+
+
+def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, strategy_version: str) -> pd.DataFrame:
+    execution_columns = [
+        "查看",
+        "股票",
+        "推送层级",
+        "当日涨跌",
+        "关键理由",
+        "候选池命中",
+        "是否优先关注",
+    ]
+
+    using_fast_fallback = False
     working_df = push_df.reset_index(drop=True).copy()
-    if "push_level" in working_df.columns:
+    if not working_df.empty and "push_level" in working_df.columns:
         # Execution list should only surface actionable names; observation pool stays out.
         working_df = working_df[working_df["push_level"].astype(str).ne("观察池")].copy()
-    if strategy_version in {"v2", "v3"} and "push_level" in working_df.columns:
+    if not working_df.empty and strategy_version in {"v2", "v3"} and "push_level" in working_df.columns:
         # For intraday versions, once limit-up names are removed, execution rows must stay high quality.
         working_df = working_df[working_df["push_level"].astype(str).isin(["强推观察", "重点观察"])].copy()
     if working_df.empty:
-        return pd.DataFrame()
+        working_df = build_fast_execution_fallback_df(fast_df)
+        using_fast_fallback = not working_df.empty
+    if working_df.empty:
+        return pd.DataFrame(columns=execution_columns)
 
     fast_lookup = pd.DataFrame()
     if not fast_df.empty and "code" in fast_df.columns:
@@ -1146,7 +1199,7 @@ def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, str
     priority_rows = []
     for _, row in working_df.iterrows():
         enriched = row.copy()
-        candidate_hit = "否"
+        candidate_hit = "是" if using_fast_fallback else "否"
         if not fast_lookup.empty:
             matches = fast_lookup[fast_lookup["_norm_code"].eq(normalize_code(row.get("code", "")))]
             if not matches.empty:
@@ -1155,9 +1208,10 @@ def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, str
                 for column in ["fast_level", "next_session_plan"]:
                     enriched[column] = fast_row.get(column, enriched.get(column, ""))
         hit_rows.append(candidate_hit)
-        priority_rows.append(is_priority_focus(enriched, candidate_hit))
+        priority_rows.append(is_execution_priority_focus(enriched, candidate_hit))
     display_df["候选池命中"] = hit_rows
     display_df["是否优先关注"] = priority_rows
+    display_df = display_df.reindex(columns=execution_columns)
     return display_df
 
 
@@ -1320,6 +1374,7 @@ def dataset_paths_for_version(strategy_version: str) -> dict[str, Path]:
     return {
         "signals": signals_csv_for(normalized),
         "followups": followups_csv_for(normalized),
+        "daily_features": FEATURES_CSV,
         "backtest_summary": backtest_summary_csv_for(normalized),
         "latest_push": latest_push_csv_for(normalized),
         "fast_strategy": fast_strategy_csv_for(normalized),
@@ -1504,10 +1559,10 @@ selected_strategy_version = render_sidebar_daily_flow()
 data = load_all(selected_strategy_version)
 signals_df = data["signals"]
 followups_df = data["followups"]
+daily_features_df = data["daily_features"]
 backtest_summary_df = normalize_backtest_summary(data.get("backtest_summary", pd.DataFrame()), selected_strategy_version)
 latest_push_df = data["latest_push"]
 fast_strategy_df = data["fast_strategy"]
-fast_strategy_audit_df = data["fast_strategy_audit"]
 strong_recap_df = data["strong_recap"]
 rule_eval_df = (
     build_backtest_metric_matrix(
@@ -1581,7 +1636,7 @@ if freshness_summary:
         st.warning(freshness_summary)
 active_view = st.radio(
     "查看页面",
-    options=["今日决策", "历史审查", "样本追踪", "强势复盘", "规则评估"],
+    options=["今日决策", "样本追踪", "强势复盘", "规则评估"],
     index=0,
     horizontal=True,
     label_visibility="collapsed",
@@ -1611,7 +1666,6 @@ if active_view == "今日决策":
         fast_strategy_display_df = format_table_df(
             fast_strategy_df,
             columns=[
-                "code",
                 "name",
                 "fast_score",
                 "fast_level",
@@ -1620,7 +1674,6 @@ if active_view == "今日决策":
                 "next_session_plan",
             ],
             rename={
-                "code": "代码",
                 "name": "名称",
                 "fast_score": "策略分",
                 "fast_level": "快策略层级",
@@ -1635,21 +1688,24 @@ if active_view == "今日决策":
             hide_index=True,
             key="fast_strategy_table",
         )
-        with st.expander("调试字段", expanded=False):
+        with st.expander("候选明细（业务 / 调试）", expanded=False):
+            st.caption("把业务理由和调试字段放在一起，方便你只展开一次就够。")
             display_table(
                 fast_strategy_df,
                 columns=[
                     "rank",
+                    "emotion_score",
                     "code",
                     "name",
-                    "emotion_score",
+                    "fast_score",
+                    "fast_level",
+                    "analysis_window",
                     "market_regime",
                     "market_1d_pct",
                     "relative_1d_pct",
                     "market_adjustment",
                     "capture_type",
                     "snapshot_time",
-                    "fit_reasons",
                     "reasons",
                     "risks",
                 ],
@@ -1658,13 +1714,15 @@ if active_view == "今日决策":
                     "code": "代码",
                     "name": "名称",
                     "emotion_score": "情绪分",
+                    "fast_score": "策略分",
+                    "fast_level": "快策略层级",
+                    "analysis_window": "观察窗口",
                     "market_regime": "收盘环境",
                     "market_1d_pct": "大盘当日",
                     "relative_1d_pct": "跑赢大盘",
                     "market_adjustment": "大盘修正",
                     "capture_type": "采集类型",
                     "snapshot_time": "快照时间",
-                    "fit_reasons": "快策略命中",
                     "reasons": "原始原因",
                     "risks": "风险",
                 },
@@ -1677,232 +1735,192 @@ if active_view == "今日决策":
         st.info("暂无今日推送数据。")
     else:
         execution_df = build_execution_display_df(latest_push_df, fast_strategy_df, selected_strategy_version)
-        execution_scope = st.radio(
-            "执行单范围",
-            options=["优先关注", "强推/重点", "全部"],
-            index=0,
-            horizontal=True,
-            key="latest_push_execution_scope",
-        )
-        st.caption("优先关注 = 候选池命中且推送层级为强推/重点；强推/重点 = 只按原始推送层级看。")
-        visible_execution_df = execution_df
-        if execution_scope == "优先关注":
-            visible_execution_df = execution_df[execution_df["是否优先关注"].eq("是")].copy()
-        elif execution_scope == "强推/重点":
-            visible_execution_df = execution_df[execution_df["推送层级"].astype(str).isin(["强推观察", "重点观察"])].copy()
-
-        if visible_execution_df.empty:
+        if execution_df.empty:
             st.info("当前范围暂无股票。")
         else:
-            edited_execution_df = st.data_editor(
-                visible_execution_df,
-                width="stretch",
-                hide_index=True,
-                disabled=[column for column in visible_execution_df.columns if column != "查看"],
-                column_config={
-                    "查看": st.column_config.CheckboxColumn("查看", help="勾选后打开股票详情", width="small"),
-                    "股票": st.column_config.TextColumn("股票", width="medium"),
-                    "推送层级": st.column_config.TextColumn("推送层级", width="small"),
-                    "当日涨跌": st.column_config.TextColumn("当日涨跌", width="small"),
-                    "关键理由": st.column_config.TextColumn("关键理由", width="large"),
-                    "候选池命中": st.column_config.TextColumn("候选池命中", width="small"),
-                    "是否优先关注": st.column_config.TextColumn("是否优先关注", width="small"),
-                },
-                key=f"latest_push_execution_editor_{execution_scope}_{st.session_state.get(f'latest_push_execution_editor_reset_nonce_{execution_scope}', 0)}",
+            priority_focus_count = 0
+            strong_focus_count = 0
+            if "是否优先关注" in execution_df.columns:
+                priority_focus_count = int(execution_df["是否优先关注"].astype(str).eq("是").sum())
+            if "推送层级" in execution_df.columns:
+                strong_focus_count = int(
+                    execution_df["推送层级"].astype(str).isin(["强推观察", "重点观察"]).sum()
+                )
+            default_execution_scope = "优先关注"
+            if priority_focus_count == 0 and strong_focus_count > 0:
+                default_execution_scope = "强推/重点"
+            elif priority_focus_count == 0 and strong_focus_count == 0:
+                default_execution_scope = "全部"
+
+            execution_scope = st.radio(
+                "执行单范围",
+                options=["优先关注", "强推/重点", "全部"],
+                index=["优先关注", "强推/重点", "全部"].index(default_execution_scope),
+                horizontal=True,
+                key="latest_push_execution_scope",
             )
-            checked_indices = set(edited_execution_df.index[edited_execution_df["查看"].fillna(False)])
-            previous_checked_indices = st.session_state.get("latest_push_checked_indices", set())
-            newly_checked_indices = checked_indices - previous_checked_indices
-            selected_execution_index = None
-            if newly_checked_indices:
-                selected_execution_index = sorted(newly_checked_indices)[-1]
-            st.session_state["latest_push_checked_indices"] = checked_indices
+            st.caption("优先关注 = 正式推送中的强推/重点，或正式推送为空时回退到候选池主盯；强推/重点 = 只按原始推送层级看。")
+            visible_execution_df = execution_df
+            if execution_scope == "优先关注":
+                if "是否优先关注" in execution_df.columns:
+                    visible_execution_df = execution_df[execution_df["是否优先关注"].eq("是")].copy()
+                else:
+                    visible_execution_df = execution_df.iloc[0:0].copy()
+            elif execution_scope == "强推/重点":
+                visible_execution_df = execution_df[execution_df["推送层级"].astype(str).isin(["强推观察", "重点观察"])].copy()
 
-            if selected_execution_index is not None:
-                push_row = latest_push_df.reset_index(drop=True).iloc[int(selected_execution_index)]
-                detail_row = build_detail_row(push_row, fast_strategy_df)
-                default_detail_date = str(detail_row.get("strategy_date", detail_row.get("signal_date", latest_date)))
-                render_stock_detail_dialog(detail_row, default_trade_date=default_detail_date)
-                st.session_state[f"latest_push_execution_editor_reset_nonce_{execution_scope}"] = (
-                    int(st.session_state.get(f"latest_push_execution_editor_reset_nonce_{execution_scope}", 0)) + 1
+            if visible_execution_df.empty:
+                st.info("当前范围暂无股票。")
+            else:
+                edited_execution_df = st.data_editor(
+                    visible_execution_df,
+                    width="stretch",
+                    hide_index=True,
+                    disabled=[column for column in visible_execution_df.columns if column != "查看"],
+                    column_config={
+                        "查看": st.column_config.CheckboxColumn("查看", help="勾选后打开股票详情", width="small"),
+                        "股票": st.column_config.TextColumn("股票", width="medium"),
+                        "推送层级": st.column_config.TextColumn("推送层级", width="small"),
+                        "当日涨跌": st.column_config.TextColumn("当日涨跌", width="small"),
+                        "关键理由": st.column_config.TextColumn("关键理由", width="large"),
+                        "候选池命中": st.column_config.TextColumn("候选池命中", width="small"),
+                        "是否优先关注": st.column_config.TextColumn("是否优先关注", width="small"),
+                    },
+                    key=f"latest_push_execution_editor_{execution_scope}_{st.session_state.get(f'latest_push_execution_editor_reset_nonce_{execution_scope}', 0)}",
                 )
-                st.session_state["latest_push_checked_indices"] = set()
+                checked_indices = set(edited_execution_df.index[edited_execution_df["查看"].fillna(False)])
+                previous_checked_indices = st.session_state.get("latest_push_checked_indices", set())
+                newly_checked_indices = checked_indices - previous_checked_indices
+                selected_execution_index = None
+                if newly_checked_indices:
+                    selected_execution_index = sorted(newly_checked_indices)[-1]
+                st.session_state["latest_push_checked_indices"] = checked_indices
 
-elif active_view == "历史审查":
-        st.subheader("历史审查")
-        st.caption("单独回看快策略结算结果，和今日执行页分开，避免塞在同一个页签里。")
-        if fast_strategy_audit_df.empty:
-            st.info("暂无审查记录。当前策略已记录后，等待后续行情更新。")
-        else:
-            audit_dates = sorted(fast_strategy_audit_df["strategy_date"].dropna().astype(str).unique(), reverse=True)
-            audit_filter_cols = st.columns(3, gap="small")
-            with audit_filter_cols[0]:
-                st.caption("审查哪一天的策略")
-                selected_audit_date = st.selectbox(
-                    "审查哪一天的策略",
-                    options=["全部"] + audit_dates,
-                    index=0,
-                    label_visibility="collapsed",
-                    key="audit_selected_date",
-                )
-            with audit_filter_cols[1]:
-                st.caption("审查范围")
-                audit_scope = st.selectbox(
-                    "审查范围",
-                    options=["全部"] + sorted(fast_strategy_audit_df["audit_scope"].dropna().astype(str).unique()),
-                    index=0,
-                    label_visibility="collapsed",
-                    key="audit_scope",
-                )
-            with audit_filter_cols[2]:
-                st.caption("排序方式")
-                audit_sort = st.selectbox(
-                    "排序方式",
-                    options=["复盘优先", "策略分最高", "至今涨幅最高", "人气排名靠前"],
-                    index=0,
-                    label_visibility="collapsed",
-                    key="audit_sort",
-                )
-            audit_df = fast_strategy_audit_df.copy()
-            if selected_audit_date != "全部":
-                audit_df = audit_df[audit_df["strategy_date"].astype(str).eq(selected_audit_date)]
-            if audit_scope != "全部":
-                audit_df = audit_df[audit_df["audit_scope"].astype(str).eq(audit_scope)]
-            if not audit_df.empty:
-                audit_df = audit_df.copy()
-                audit_df["fast_score"] = pd.to_numeric(audit_df.get("fast_score"), errors="coerce")
-                audit_df["latest_return_pct"] = pd.to_numeric(audit_df.get("latest_return_pct"), errors="coerce")
-                audit_df["rank"] = pd.to_numeric(audit_df.get("rank"), errors="coerce")
-                if audit_sort == "策略分最高":
-                    audit_df = audit_df.sort_values(["strategy_date", "fast_score", "rank"], ascending=[False, False, True], na_position="last")
-                elif audit_sort == "至今涨幅最高":
-                    audit_df = audit_df.sort_values(["strategy_date", "latest_return_pct", "fast_score", "rank"], ascending=[False, False, False, True], na_position="last")
-                elif audit_sort == "人气排名靠前":
-                    audit_df = audit_df.sort_values(["strategy_date", "rank", "fast_score"], ascending=[False, True, False], na_position="last")
-            display_table(
-                audit_df,
-                columns=[
-                    "strategy_date",
-                    "audit_status",
-                    "audit_scope",
-                    "audit_result",
-                    "lesson_type",
-                    "rank",
-                    "code",
-                    "name",
-                    "fast_level",
-                    "fast_score",
-                    "observed_days",
-                    "tail_next_open_pct",
-                    "tail_next_close_pct",
-                    "latest_return_pct",
-                    "return_3d_pct",
-                    "return_5d_pct",
-                    "max_gain_5d_pct",
-                    "lesson_note",
-                    "reasons",
-                    "risks",
-                ],
-                rename={
-                    "strategy_date": "策略日",
-                    "audit_status": "审查状态",
-                    "audit_scope": "审查范围",
-                    "audit_result": "审查结果",
-                    "lesson_type": "反哺标签",
-                    "rank": "人气排名",
-                    "code": "代码",
-                    "name": "名称",
-                    "fast_level": "快策略层级",
-                    "fast_score": "快策略分",
-                    "observed_days": "已观察天数",
-                    "tail_next_open_pct": "次日开盘收益%",
-                    "tail_next_close_pct": "次日收盘收益%",
-                    "latest_return_pct": "至今涨跌%",
-                    "return_3d_pct": "3日收益%",
-                    "return_5d_pct": "5日收益%",
-                    "max_gain_5d_pct": "5日最大上涨%",
-                    "lesson_note": "反哺记录",
-                    "reasons": "当时原因",
-                    "risks": "当时风险",
-                },
-                column_config={
-                    "审查结果": st.column_config.TextColumn(
-                        "审查结果",
-                        help="走势结论：根据已观察天数和当前后验收益判断这条样本到目前表现如何。",
-                    ),
-                    "反哺标签": st.column_config.TextColumn(
-                        "反哺标签",
-                        help="学习分桶：用于后续规则复盘和权重调整，不等同于走势结论。",
-                    ),
-                    "快策略分": st.column_config.TextColumn(
-                        "快策略分",
-                        help="反哺样本，不参与快策略打分。",
+                if selected_execution_index is not None:
+                    push_row = latest_push_df.reset_index(drop=True).iloc[int(selected_execution_index)]
+                    detail_row = build_detail_row(push_row, fast_strategy_df)
+                    default_detail_date = str(detail_row.get("strategy_date", detail_row.get("signal_date", latest_date)))
+                    render_stock_detail_dialog(detail_row, default_trade_date=default_detail_date)
+                    st.session_state[f"latest_push_execution_editor_reset_nonce_{execution_scope}"] = (
+                        int(st.session_state.get(f"latest_push_execution_editor_reset_nonce_{execution_scope}", 0)) + 1
                     )
-                },
-                limit=300,
-            )
+                    st.session_state["latest_push_checked_indices"] = set()
 
 elif active_view == "样本追踪":
     st.subheader("样本追踪")
-    st.caption("每一行是某天进入 Top100 的一条样本，后面会持续结算 1/3/5/10 日。")
     if followups_df.empty:
         st.info("暂无后验数据。")
     else:
         working_df = followups_df.copy()
         dates = sorted(working_df["signal_date"].dropna().astype(str).unique(), reverse=True)
         selected_date = st.selectbox("查看哪一天的样本", options=["全部"] + dates, index=0)
-        only_pushed = st.checkbox("只看当时被推送的样本", value=False)
-        keyword = st.text_input("搜索代码或名称", value="")
+        filter_left, filter_right = st.columns([1.1, 5.2])
+        with filter_left:
+            only_pushed = st.checkbox("只看当时被推送的样本", value=False)
+        with filter_right:
+            market_box = st.empty()
         if selected_date != "全部":
             working_df = working_df[working_df["signal_date"].astype(str).eq(selected_date)]
         if only_pushed and "is_pushed" in working_df.columns:
             working_df = working_df[working_df["is_pushed"].astype(str).str.lower().isin(["true", "1"])]
+        keyword = st.text_input("搜索代码或名称", value="")
         if keyword:
             mask = working_df["code"].astype(str).str.contains(keyword, case=False, na=False) | working_df["name"].astype(str).str.contains(keyword, case=False, na=False)
             working_df = working_df[mask]
+
+        def _fmt_pct(value: object) -> str:
+            if pd.isna(value):
+                return "-"
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return "-"
+            sign = "+" if num > 0 else ""
+            return f"{sign}{num:.2f}%"
+
+        if not daily_features_df.empty and {"signal_date", "code", "day_return_pct"}.issubset(daily_features_df.columns):
+            day_return_lookup = daily_features_df.loc[:, ["signal_date", "code", "day_return_pct"]].copy()
+            day_return_lookup["signal_date"] = day_return_lookup["signal_date"].astype(str)
+            day_return_lookup["code"] = day_return_lookup["code"].map(normalize_code)
+            working_df = working_df.copy()
+            working_df["signal_date"] = working_df["signal_date"].astype(str)
+            working_df["code"] = working_df["code"].map(normalize_code)
+            working_df = working_df.merge(day_return_lookup, on=["signal_date", "code"], how="left")
+        else:
+            working_df = working_df.copy()
+            working_df["day_return_pct"] = pd.NA
+
+        if selected_date != "全部" and not market_regime_df.empty and "signal_date" in market_regime_df.columns:
+            market_row = market_regime_df[market_regime_df["signal_date"].astype(str).eq(selected_date)]
+            if not market_row.empty:
+                market_row = market_row.iloc[0]
+                market_regime = str(market_row.get("market_regime") or "未收录")
+                sh_1d_pct = _fmt_pct(market_row.get("sh_1d_pct"))
+                market_price_date = str(market_row.get("market_price_date") or selected_date)
+                with market_box.container(border=True):
+                    st.markdown(f"**当天大盘：{market_regime}** ｜ 上证：{sh_1d_pct} ｜ {market_price_date}")
+            else:
+                with market_box.container(border=True):
+                    st.markdown("**当天大盘：未收录**")
+        elif selected_date != "全部":
+            with market_box.container(border=True):
+                st.markdown("**当天大盘：未收录**")
+
+        sample_columns = [
+            "rank",
+            "name",
+            "push_level",
+            "day_return_pct",
+            "emotion_score",
+            "observed_days",
+            "capture_type",
+            "latest_return_pct",
+            "return_3d_pct",
+        ]
+        sample_rename = {
+            "rank": "人气排名",
+            "name": "名称",
+            "push_level": "推送层级",
+            "day_return_pct": "当时涨跌",
+            "emotion_score": "情绪分",
+            "observed_days": "已观察天数",
+            "capture_type": "采集类型",
+            "latest_return_pct": "至今涨跌%",
+            "return_3d_pct": "3日收益%",
+        }
+
         display_table(
             working_df.sort_values(["signal_date", "emotion_score"], ascending=[False, False], na_position="last"),
-            columns=[
-                "signal_date",
-                "rank",
-                "code",
-                "name",
-                "push_level",
-                "emotion_score",
-                "observed_days",
-                "capture_type",
-                "snapshot_time",
-                "tail_next_open_pct",
-                "tail_next_close_pct",
-                "latest_return_pct",
-                "return_3d_pct",
-                "return_5d_pct",
-                "max_gain_5d_pct",
-                "reasons",
-                "risks",
-            ],
-            rename={
-                "signal_date": "加入日期",
-                "rank": "人气排名",
-                "code": "代码",
-                "name": "名称",
-                "push_level": "推送层级",
-                "emotion_score": "情绪分",
-                "observed_days": "已观察天数",
-                "capture_type": "采集类型",
-                "snapshot_time": "快照时间",
-                "tail_next_open_pct": "次日开盘收益%",
-                "tail_next_close_pct": "次日收盘收益%",
-                "latest_return_pct": "至今涨跌%",
-                "return_3d_pct": "3日收益%",
-                "return_5d_pct": "5日收益%",
-                "max_gain_5d_pct": "5日最大上涨%",
-                "reasons": "当时原因",
-                "risks": "当时风险",
-            },
+            columns=sample_columns,
+            rename=sample_rename,
             limit=300,
         )
-
+        with st.expander("辅助字段（代码 / 快照 / 原因 / 风险）", expanded=False):
+            st.caption("这里放主表没显示的细节，方便需要时再对照。")
+            display_table(
+                working_df,
+                columns=[
+                    "signal_date",
+                    "code",
+                    "name",
+                    "push_level",
+                    "capture_type",
+                    "snapshot_time",
+                    "reasons",
+                    "risks",
+                ],
+                rename={
+                    "signal_date": "加入日期",
+                    "code": "代码",
+                    "name": "名称",
+                    "push_level": "推送层级",
+                    "capture_type": "采集类型",
+                    "snapshot_time": "快照时间",
+                    "reasons": "当时原因",
+                    "risks": "当时风险",
+                },
+                limit=120,
+            )
 elif active_view == "强势复盘":
     st.subheader("强势复盘")
     if isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
@@ -1952,7 +1970,6 @@ elif active_view == "强势复盘":
 
 else:
     st.subheader("规则评估")
-    st.caption("按推送层级、排名段、上榜阶段看后验表现。样本多起来后，这里就是调参依据。")
     compare_data = {
         version: (data if version == selected_strategy_version else load_all(version))
         for version in AVAILABLE_STRATEGY_VERSIONS
