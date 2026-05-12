@@ -98,6 +98,31 @@ def _followup_refresh_codes(
     return sorted(code for code in codes if code)
 
 
+def _stale_settlement_codes(followup_df: pd.DataFrame, settlement_date: object) -> set[str]:
+    if followup_df.empty or "code" not in followup_df.columns or "signal_date" not in followup_df.columns:
+        return set()
+
+    working = followup_df.copy()
+    working["signal_date"] = pd.to_datetime(working["signal_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    settlement_date_text = pd.to_datetime(pd.Series([settlement_date]), errors="coerce").dt.strftime("%Y-%m-%d").iloc[0]
+    if not settlement_date_text:
+        return set()
+
+    working = working[working["signal_date"].eq(settlement_date_text)].copy()
+    if working.empty:
+        return set()
+
+    if "settled_1d" in working.columns:
+        working = working[~_truthy_mask(working["settled_1d"])].copy()
+    elif "return_1d_pct" in working.columns:
+        working = working[pd.to_numeric(working["return_1d_pct"], errors="coerce").isna()].copy()
+    else:
+        return set()
+
+    codes = set(working["code"].dropna().astype(str).map(normalize_code))
+    return {code for code in codes if code}
+
+
 def _latest_signal_slice(signal_df: pd.DataFrame) -> pd.DataFrame:
     if signal_df.empty or "signal_date" not in signal_df.columns:
         return pd.DataFrame()
@@ -381,17 +406,14 @@ def run_pipeline(
     }
     for strategy_version in strategy_versions:
         existing_signal_history = existing_signal_history_frames.get(strategy_version, pd.DataFrame())
-        if full_capture_mode and strategy_version != default_strategy_version and not existing_signal_history.empty:
-            signal_df = existing_signal_history.copy()
-        else:
-            signal_df = build_signals(
-                feature_frames[strategy_version],
-                min_score=min_score,
-                market_regime_df=market_regime_df,
-                strategy_version=strategy_version,
-            )
-            if not existing_signal_history.empty:
-                signal_df = _merge_history_by_date(existing_signal_history, signal_df)
+        signal_df = build_signals(
+            feature_frames[strategy_version],
+            min_score=min_score,
+            market_regime_df=market_regime_df,
+            strategy_version=strategy_version,
+        )
+        if not existing_signal_history.empty:
+            signal_df = _merge_history_by_date(existing_signal_history, signal_df)
         save_signals(signal_df, strategy_version=strategy_version)
         signal_frames[strategy_version] = signal_df
         strategy_results[strategy_version]["signals"] = {
@@ -467,6 +489,66 @@ def run_pipeline(
             market_regime_df,
             min_settlement_ratio=freshness_min_ratio,
         )
+
+    should_retry_stale_followups = (
+        not light_report_mode
+        and native_fetch
+        and bool(settings.get("refresh_price_cache", True))
+        and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot", "stale_settlement"}
+    )
+    stale_retry_codes: set[str] = set()
+    stale_retry_versions: set[str] = set()
+    if should_retry_stale_followups:
+        for strategy_version, freshness_report in freshness_by_version.items():
+            settled_ratio = freshness_report.get("settled_1d_ratio")
+            settlement_row_count = int(freshness_report.get("settlement_row_count") or 0)
+            settlement_date = freshness_report.get("settlement_date")
+            if settlement_row_count <= 0 or settled_ratio is None:
+                continue
+            if float(settled_ratio) >= freshness_min_ratio:
+                continue
+            current_codes = _stale_settlement_codes(
+                followup_frames.get(strategy_version, pd.DataFrame()),
+                settlement_date,
+            )
+            if not current_codes:
+                continue
+            stale_retry_versions.add(strategy_version)
+            stale_retry_codes.update(current_codes)
+
+    if stale_retry_codes:
+        result["followup_price_cache_retry"] = warm_stock_price_cache(sorted(stale_retry_codes), force_refresh=True)
+        for strategy_version in stale_retry_versions:
+            signal_df = signal_frames[strategy_version]
+            refreshed_followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)
+            existing_followup_history = existing_followup_history_frames.get(strategy_version, pd.DataFrame())
+            if not existing_followup_history.empty:
+                refreshed_followup_df = _merge_history_by_date(existing_followup_history, refreshed_followup_df)
+            save_followups(refreshed_followup_df, strategy_version=strategy_version)
+            followup_frames[strategy_version] = refreshed_followup_df
+            strategy_results[strategy_version]["followups"] = {
+                "rows": len(refreshed_followup_df),
+                "latest_observed_days": int(refreshed_followup_df["observed_days"].max()) if not refreshed_followup_df.empty and "observed_days" in refreshed_followup_df.columns else 0,
+                "mode": "fresh",
+            }
+            strategy_results[strategy_version]["reports"] = build_reports(
+                signal_df=signal_df,
+                followup_df=refreshed_followup_df,
+                latest_push_limit=latest_push_limit,
+                strong_return_threshold_pct=strong_threshold,
+                strategy_version=strategy_version,
+                light_mode=False,
+            )
+        for strategy_version in strategy_versions:
+            freshness_by_version[strategy_version] = build_data_freshness_report(
+                followup_frames.get(strategy_version, pd.DataFrame()),
+                market_regime_df,
+                min_settlement_ratio=freshness_min_ratio,
+            )
+        result["followups"] = strategy_results.get(default_strategy_version, {}).get("followups", {})
+        result["reports"] = strategy_results.get(default_strategy_version, {}).get("reports", {})
+        result["strategies"] = strategy_results
+
     result["freshness_by_version"] = freshness_by_version
     result["freshness"] = freshness_by_version.get(default_strategy_version, {})
 
