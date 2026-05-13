@@ -17,7 +17,7 @@ It no longer relies on GitHub's own `schedule` trigger for time-sensitive A-shar
 - `tail_capture`
   Runs the 14:30 intraday pipeline with an explicit Shanghai snapshot timestamp.
 - `recompute`
-  Rebuilds local outputs from existing cached data without fetching new market data.
+  Rebuilds local outputs from existing cached data without fetching new market data. This mode is local-only in spirit: the workflow still runs in GitHub and uploads artifacts, but it does not sync generated outputs back to `main`.
 - `backtest`
   Rebuilds formal backtest summary outputs from existing `signals` and `followups`.
 - `tests`
@@ -242,7 +242,6 @@ For `workflow_dispatch` runs in these modes:
 - `full`
 - `morning_capture`
 - `tail_capture`
-- `recompute`
 - `backtest`
 
 the workflow commits generated outputs back to `main`, including:
@@ -255,6 +254,8 @@ the workflow commits generated outputs back to `main`, including:
 - `data/reports/*.csv`
 
 It does not sync outputs for `tests`.
+
+`recompute` is intentionally excluded from sync-back because it only recalculates from whatever caches already exist in the runner. That makes it useful for diagnostics and local-style experiments, but not safe to publish as the repository's formal latest result.
 
 ## Recommended Operating Model
 

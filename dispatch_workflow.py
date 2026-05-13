@@ -14,7 +14,12 @@ from src.github_dispatch import (
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Trigger the GitHub workflow_dispatch API for this repository.")
-    parser.add_argument("--mode", required=True, choices=supported_dispatch_modes(), help="Workflow mode to dispatch.")
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=supported_dispatch_modes(),
+        help="Workflow mode to dispatch. Note: recompute uploads artifacts only and does not sync outputs back to main.",
+    )
     parser.add_argument("--force-refresh-prices", action="store_true", help="Force remote price refresh for full, morning_capture, or tail_capture.")
     parser.add_argument("--repository", default=DEFAULT_REPOSITORY, help="GitHub repository in owner/name form.")
     parser.add_argument("--workflow-file", default=DEFAULT_WORKFLOW_FILE, help="Workflow file name under .github/workflows/.")

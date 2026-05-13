@@ -72,6 +72,8 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             mode="tests"
             force_refresh="false"
+          elif [ "${mode}" = "recompute" ]; then
+            sync_back="false"
           elif [ "${mode}" != "tests" ]; then
             sync_back="true"
           fi
