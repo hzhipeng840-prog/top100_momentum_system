@@ -339,6 +339,147 @@ def _apply_v4_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) 
     return adjustment
 
 
+def _apply_v2_recap_executable_rules(
+    row: pd.Series,
+    reasons: list[str],
+    risks: list[str],
+) -> float:
+    rank = parse_number(row.get("rank"))
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    volume_ratio = parse_number(row.get("volume_ratio_5"))
+    pre5_return = parse_number(row.get("pre5_return_pct"))
+    dist_ma20 = parse_number(row.get("dist_ma20_pct"))
+    consecutive_days = parse_number(row.get("consecutive_days"))
+    rank_change = parse_number(row.get("rank_change"))
+    upper_shadow = parse_number(row.get("upper_shadow_pct"))
+    one_word_like = _as_bool(row.get("one_word_like"))
+    limit_up_like = _as_bool(row.get("limit_up_like"))
+
+    base_bonus = 10.0
+    follow_bonus = 7.0
+    first_bonus = 4.0
+    weak_penalty = 9.0
+    late_penalty = 8.0
+    fade_penalty = 6.0
+
+    adjustment = 0.0
+
+    early_warming_shape = (
+        rank is not None
+        and rank <= 30
+        and _value_in_range(day_return, 3.0, 8.8)
+        and _value_in_range(close_position, 0.75, 0.95)
+        and _value_in_range(volume_ratio, 0.8, 1.6)
+        and _value_in_range(pre5_return, 5.0, 18.0)
+        and _value_in_range(dist_ma20, 0.0, 25.0)
+        and not one_word_like
+        and not limit_up_like
+    )
+    if early_warming_shape:
+        adjustment += base_bonus
+        _add_reason(reasons, "v2早段升温样本提权")
+
+    follow_through_shape = (
+        rank is not None
+        and rank <= 20
+        and consecutive_days is not None
+        and 2 <= consecutive_days <= 4
+        and _value_in_range(close_position, 0.75, 0.95)
+        and (rank_change is None or (-5 <= rank_change <= 60))
+        and (upper_shadow is None or upper_shadow <= 0.22)
+        and _value_in_range(volume_ratio, 0.8, 1.6)
+        and _value_in_range(pre5_return, 5.0, 22.0)
+        and not one_word_like
+        and not limit_up_like
+    )
+    if follow_through_shape:
+        adjustment += follow_bonus
+        _add_reason(reasons, "v2连榜确认样本提权")
+
+    first_appearance_shape = (
+        rank is not None
+        and rank <= 15
+        and _value_in_range(day_return, 3.0, 8.5)
+        and _value_in_range(close_position, 0.75, 0.92)
+        and _value_in_range(volume_ratio, 0.8, 1.4)
+        and _value_in_range(pre5_return, 5.0, 16.0)
+        and _value_in_range(dist_ma20, 0.0, 22.0)
+        and not one_word_like
+        and not limit_up_like
+        and consecutive_days is not None
+        and consecutive_days <= 2
+    )
+    if first_appearance_shape:
+        adjustment += first_bonus
+        _add_reason(reasons, "v2首次强势样本提权")
+
+    weak_close_shape = (
+        day_return is not None
+        and day_return < 0
+        and close_position is not None
+        and close_position < 0.62
+    )
+    if weak_close_shape:
+        adjustment -= weak_penalty
+        _add_reason(risks, "v2回避转弱弱收盘样本")
+
+    late_overheated_shape = (
+        rank is not None
+        and rank > 30
+        and consecutive_days is not None
+        and consecutive_days >= 4
+        and pre5_return is not None
+        and pre5_return > 20
+    )
+    if late_overheated_shape:
+        adjustment -= late_penalty
+        _add_reason(risks, "v2回避后段过热样本")
+
+    rank_fade_shape = (
+        rank_change is not None
+        and rank_change <= -10
+        and close_position is not None
+        and close_position < 0.7
+    )
+    if rank_fade_shape:
+        adjustment -= fade_penalty
+        _add_reason(risks, "v2回避人气转弱样本")
+
+    tight_nonlimit_shape = (
+        not limit_up_like
+        and _value_in_range(close_position, 0.95, None)
+        and _value_in_range(day_return, 7.0, None)
+    )
+    if tight_nonlimit_shape:
+        adjustment -= 8.0
+        _add_reason(risks, "v2回避非封板高位追涨样本")
+
+    stretched_buyable_shape = (
+        not limit_up_like
+        and rank is not None
+        and rank > 20
+        and volume_ratio is not None
+        and volume_ratio > 1.5
+    )
+    if stretched_buyable_shape:
+        adjustment -= 5.0
+        _add_reason(risks, "v2回避中后段放量追高样本")
+
+    overheated_first_shape = (
+        not limit_up_like
+        and consecutive_days is not None
+        and consecutive_days <= 2
+        and pre5_return is not None
+        and pre5_return > 25.0
+    )
+    if overheated_first_shape:
+        adjustment -= 6.0
+        _add_reason(risks, "v2回避前段过热样本")
+
+    return adjustment
+
+
 def _market_regime_adjustment(row: pd.Series, reasons: list[str], risks: list[str], strategy_version: str) -> float:
     market_regime = str(row.get("market_regime") or "").strip()
     if market_regime in {"", "未知"}:
@@ -565,6 +706,12 @@ def score_signal(
         score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
     if strategy_version == "v4":
         score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
+    if strategy_version == "v2":
+        score += _apply_v2_recap_executable_rules(
+            row,
+            reasons=reasons,
+            risks=risks,
+        )
 
     score = round(max(score, 0), 2)
     push_level, action = _push_level_from_score(score, strategy_version=strategy_version, min_score=min_score)

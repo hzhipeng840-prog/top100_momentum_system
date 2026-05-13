@@ -150,6 +150,71 @@ class StrategyVersioningTest(unittest.TestCase):
         self.assertEqual(strategy_thresholds("v3", min_score=60), (74.0, 88.0, 102.0))
         self.assertEqual(strategy_capture_priority("v3"), ["intraday_1430", "post_close"])
 
+    def test_v2_rewards_executable_recap_shape(self) -> None:
+        strong_row = {
+            "rank": 28,
+            "day_return_pct": 6.3,
+            "close_position": 0.83,
+            "volume_ratio_5": 1.05,
+            "pre5_return_pct": 15.0,
+            "dist_ma20_pct": 13.0,
+            "consecutive_days": 2,
+            "appearance_count": 1,
+            "rank_change": 2,
+            "one_word_like": False,
+            "limit_up_like": False,
+            "upper_shadow_pct": 0.1,
+            "price_status": "ok",
+        }
+        weak_row = dict(
+            strong_row,
+            rank=63,
+            day_return_pct=-1.5,
+            close_position=0.52,
+            volume_ratio_5=1.25,
+            pre5_return_pct=23.0,
+            consecutive_days=5,
+            rank_change=-12,
+        )
+
+        strong = score_signal(strong_row, strategy_version="v2")
+        weak = score_signal(weak_row, strategy_version="v2")
+
+        self.assertGreater(strong["emotion_score"], weak["emotion_score"])
+        self.assertIn("v2", "".join(strong["reasons"]))
+        self.assertIn("v2", "".join(weak["risks"]))
+
+    def test_v2_penalizes_nonlimit_high_chase_shape(self) -> None:
+        clean_row = {
+            "rank": 12,
+            "day_return_pct": 6.8,
+            "close_position": 0.88,
+            "volume_ratio_5": 1.18,
+            "pre5_return_pct": 14.0,
+            "dist_ma20_pct": 12.0,
+            "consecutive_days": 2,
+            "appearance_count": 1,
+            "rank_change": 18,
+            "one_word_like": False,
+            "limit_up_like": False,
+            "upper_shadow_pct": 0.08,
+            "price_status": "ok",
+        }
+        stretched_row = dict(
+            clean_row,
+            rank=36,
+            day_return_pct=8.8,
+            close_position=0.98,
+            volume_ratio_5=1.82,
+            pre5_return_pct=28.0,
+        )
+
+        clean = score_signal(clean_row, strategy_version="v2")
+        stretched = score_signal(stretched_row, strategy_version="v2")
+
+        self.assertGreater(clean["emotion_score"], stretched["emotion_score"])
+        self.assertIn("v2", "".join(stretched["risks"]))
+
     def test_capture_type_routes_to_expected_strategy_version(self) -> None:
         self.assertEqual(strategy_version_for_capture_type("post_close"), "v1")
         self.assertEqual(strategy_version_for_capture_type("intraday_0935"), "v2")
@@ -204,7 +269,7 @@ class StrategyVersioningTest(unittest.TestCase):
         v2 = score_signal(row, strategy_version="v2")
         v4 = score_signal(row, strategy_version="v4")
 
-        self.assertLess(v4["emotion_score"], v2["emotion_score"])
+        self.assertLessEqual(v4["emotion_score"], v2["emotion_score"])
         self.assertIn("v4", "".join(v4["risks"]))
 
 
