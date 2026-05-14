@@ -1413,6 +1413,10 @@ def load_all(strategy_version: str) -> dict[str, pd.DataFrame]:
     }
 
 
+def shadow_v4_summary_data() -> dict[str, pd.DataFrame]:
+    return load_all("v4")
+
+
 def render_sidebar_daily_flow() -> str:
     st.sidebar.title("工作区")
 
@@ -1970,6 +1974,107 @@ elif active_view == "强势复盘":
 
 else:
     st.subheader("规则评估")
+    v4_shadow = shadow_v4_summary_data()
+    v4_shadow_backtest = normalize_backtest_summary(v4_shadow.get("backtest_summary", pd.DataFrame()), "v4")
+    v4_shadow_rule_eval = build_backtest_metric_snapshot(
+        v4_shadow_backtest,
+        strategy_version="v4",
+        metric_key=RULE_EVAL_METRIC_LABEL_TO_KEY.get(strategy_default_metric_label("v4"), "tail_next_close"),
+    )
+    v4_shadow_latest_push = v4_shadow.get("latest_push", pd.DataFrame())
+    v4_shadow_fast_strategy = v4_shadow.get("fast_strategy", pd.DataFrame())
+    v4_shadow_signals = v4_shadow.get("signals", pd.DataFrame())
+    v4_shadow_has_data = any(
+        not frame.empty
+        for frame in [
+            v4_shadow_backtest,
+            v4_shadow_rule_eval,
+            v4_shadow_latest_push,
+            v4_shadow_fast_strategy,
+            v4_shadow_signals,
+        ]
+    )
+    if v4_shadow_has_data:
+        with st.expander("v4 试运行摘要", expanded=False):
+            latest_v4_sample_date = "-"
+            if not v4_shadow_signals.empty and "signal_date" in v4_shadow_signals.columns:
+                latest_v4_sample_date = str(v4_shadow_signals["signal_date"].dropna().astype(str).max())
+            v4_generated_at = "-"
+            if not v4_shadow_backtest.empty and "generated_at" in v4_shadow_backtest.columns:
+                generated_values = v4_shadow_backtest["generated_at"].dropna().astype(str)
+                if not generated_values.empty:
+                    v4_generated_at = generated_values.max()
+
+            render_compact_cards(
+                [
+                    ("最新样本日", latest_v4_sample_date),
+                    ("试运行推送", len(v4_shadow_latest_push)),
+                    ("试运行候选", len(v4_shadow_fast_strategy)),
+                    ("最近回测生成", v4_generated_at if v4_generated_at != "-" else "-"),
+                ],
+                widths=[0.9, 0.8, 0.8, 1.15],
+                min_height="4.2rem",
+            )
+            st.caption("v4 会继续跟着主流程积累，但不进入主策略切换；这里只放一个轻摘要，方便随时查看实验表现。")
+
+            v4_push_level_view = (
+                v4_shadow_rule_eval[v4_shadow_rule_eval["group_name"].astype(str) == "推送层级"].copy()
+                if not v4_shadow_rule_eval.empty
+                else pd.DataFrame()
+            )
+            if not v4_push_level_view.empty:
+                display_table(
+                    v4_push_level_view,
+                    columns=[
+                        "group_value",
+                        "sample_count",
+                        "pushed_count",
+                        "valid_count",
+                        "avg_return_pct",
+                        "win_rate_pct",
+                        "strong_rate_pct",
+                    ],
+                    rename={
+                        "group_value": "推送层级",
+                        "sample_count": "样本数",
+                        "pushed_count": "推送数",
+                        "valid_count": "已结算",
+                        "avg_return_pct": "平均收益%",
+                        "win_rate_pct": "胜率%",
+                        "strong_rate_pct": "强势率%",
+                    },
+                    limit=12,
+                )
+
+            if not v4_shadow_latest_push.empty:
+                st.markdown("###### v4 试运行今日推送")
+                display_table(
+                    v4_shadow_latest_push,
+                    columns=["signal_date", "name", "push_level", "emotion_score", "reasons"],
+                    rename={
+                        "signal_date": "样本日",
+                        "name": "名称",
+                        "push_level": "推送层级",
+                        "emotion_score": "情绪分",
+                        "reasons": "为什么入选",
+                    },
+                    limit=10,
+                )
+            elif not v4_shadow_fast_strategy.empty:
+                st.markdown("###### v4 试运行候选")
+                display_table(
+                    v4_shadow_fast_strategy,
+                    columns=["strategy_date", "name", "strategy_score", "fast_strategy_level", "reasons"],
+                    rename={
+                        "strategy_date": "样本日",
+                        "name": "名称",
+                        "strategy_score": "策略分",
+                        "fast_strategy_level": "快策略层级",
+                        "reasons": "为什么入选",
+                    },
+                    limit=10,
+                )
+
     compare_data = {
         version: (data if version == selected_strategy_version else load_all(version))
         for version in AVAILABLE_STRATEGY_VERSIONS
