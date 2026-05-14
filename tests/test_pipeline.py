@@ -169,7 +169,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             force_refresh_snapshot=True,
             force_refresh_bars=False,
         )
-        self.assertEqual(result["strategy_versions"], ["v1", "v2", "v3"])
+        self.assertEqual(result["strategy_versions"], ["v1", "v2", "v3", "v4"])
         self.assertEqual(result["intraday_cache"], {"requested": 2})
 
     @patch("src.pipeline.warm_intraday_cache")
@@ -461,7 +461,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertTrue(events[0].startswith("warm:"))
         self.assertTrue(events[1].startswith("build:"))
         self.assertEqual(result["followup_price_cache"]["requested"], 1)
-        self.assertEqual(_mock_build_reports.call_count, 3)
+        self.assertEqual(_mock_build_reports.call_count, 4)
         self.assertFalse(_mock_build_reports.call_args.kwargs["light_mode"])
 
     @patch("src.pipeline.warm_intraday_cache")
@@ -583,7 +583,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
     @patch(
         "src.pipeline.load_settings",
         return_value={
-            "strategy_versions": ["v1", "v2", "v3"],
+            "strategy_versions": ["v1", "v2", "v3", "v4"],
             "default_strategy_version": "v1",
             "default_capture_type": "post_close",
             "signal_min_score": 60,
@@ -716,9 +716,11 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
             "intraday_cache_limit": 20,
         },
     )
-    @patch("src.pipeline.available_strategy_versions", return_value=["v1", "v2", "v3"])
+    @patch("src.pipeline.available_strategy_versions", return_value=["v1", "v2", "v3", "v4"])
+    @patch("src.pipeline.enrich_v4_context")
     def test_full_run_rebuilds_non_default_strategy_signals(
         self,
+        mock_enrich_v4_context,
         _mock_available_versions,
         _mock_load_settings,
         _mock_should_skip_market_fetch,
@@ -736,24 +738,29 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         _mock_build_freshness,
         _mock_read_csv_safely,
     ) -> None:
+        mock_enrich_v4_context.side_effect = lambda df: df.assign(announcement_summary="ok")
         mock_build_daily_features.side_effect = [
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600001", "rank": 1, "capture_type": "post_close"}]),
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600002", "rank": 2, "capture_type": "intraday_0950"}]),
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600003", "rank": 3, "capture_type": "intraday_1430"}]),
+            pd.DataFrame([{"signal_date": "2026-05-12", "code": "600004", "rank": 4, "capture_type": "post_close"}]),
         ]
         mock_build_signals.side_effect = [
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600001", "rank": 1, "capture_type": "post_close", "is_pushed": True}]),
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600002", "rank": 2, "capture_type": "intraday_0950", "is_pushed": False}]),
             pd.DataFrame([{"signal_date": "2026-05-12", "code": "600003", "rank": 3, "capture_type": "intraday_1430", "is_pushed": False}]),
+            pd.DataFrame([{"signal_date": "2026-05-12", "code": "600004", "rank": 4, "capture_type": "post_close", "is_pushed": False}]),
         ]
 
         result = pipeline.run_pipeline(native_fetch=True, capture_type="post_close")
 
-        self.assertEqual(mock_build_signals.call_count, 3)
+        self.assertEqual(mock_build_signals.call_count, 4)
         built_versions = [call.kwargs.get("strategy_version") for call in mock_build_signals.call_args_list]
-        self.assertEqual(built_versions, ["v1", "v2", "v3"])
+        self.assertEqual(built_versions, ["v1", "v2", "v3", "v4"])
+        mock_enrich_v4_context.assert_called_once()
         self.assertIn("v2", result["strategies"])
         self.assertIn("v3", result["strategies"])
+        self.assertIn("v4", result["strategies"])
 
 
 if __name__ == "__main__":

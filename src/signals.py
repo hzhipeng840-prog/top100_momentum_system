@@ -231,110 +231,244 @@ def _apply_v3_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) 
     return adjustment
 
 
-def _apply_v4_bonus_rules(row: pd.Series, reasons: list[str], risks: list[str]) -> float:
-    rank = parse_number(row.get("rank"))
+def _apply_v4_technical_rules(row: pd.Series, reasons: list[str], risks: list[str]) -> float:
     day_return = parse_number(row.get("day_return_pct"))
+    pre3_return = parse_number(row.get("pre3_return_pct"))
+    pre5_return = parse_number(row.get("pre5_return_pct"))
     close_position = parse_number(row.get("close_position"))
     volume_ratio = parse_number(row.get("volume_ratio_5"))
-    pre5_return = parse_number(row.get("pre5_return_pct"))
+    dist_ma5 = parse_number(row.get("dist_ma5_pct"))
+    dist_ma10 = parse_number(row.get("dist_ma10_pct"))
     dist_ma20 = parse_number(row.get("dist_ma20_pct"))
-    consecutive_days = parse_number(row.get("consecutive_days"))
-    rank_change = parse_number(row.get("rank_change"))
     upper_shadow = parse_number(row.get("upper_shadow_pct"))
-    one_word_like = _as_bool(row.get("one_word_like"))
+    rank = parse_number(row.get("rank"))
+    consecutive_days = parse_number(row.get("consecutive_days"))
+    limit_up_like = _as_bool(row.get("limit_up_like"))
 
     adjustment = 0.0
 
-    winner_limit_follow_through = (
-        _value_in_range(day_return, 9.5, None)
-        and _value_in_range(close_position, 0.9, None)
-        and _value_in_range(volume_ratio, 0.8, 1.8)
-        and consecutive_days is not None
-        and 2 <= consecutive_days <= 3
-        and not one_word_like
+    bullish_alignment = (
+        dist_ma5 is not None
+        and dist_ma10 is not None
+        and dist_ma20 is not None
+        and dist_ma5 > 0
+        and dist_ma10 > 0
+        and dist_ma20 > 0
+        and dist_ma5 < dist_ma10 < dist_ma20
     )
-    if winner_limit_follow_through:
-        adjustment += 14
-        _add_reason(reasons, "v4强势连板胜率提纯")
+    if bullish_alignment:
+        adjustment += 12.0
+        _add_reason(reasons, "v4多头排列技术加分")
 
-    winner_early_range = (
-        _value_in_range(day_return, 9.5, None)
-        and _value_in_range(pre5_return, 10, 30)
-        and _value_in_range(dist_ma20, 0, 28)
-        and consecutive_days is not None
-        and 1 <= consecutive_days <= 3
-        and (rank_change is None or rank_change >= -5)
-        and not one_word_like
+    ma5_pullback = (
+        bullish_alignment
+        and _value_in_range(dist_ma5, 0.0, 2.2)
+        and _value_in_range(volume_ratio, 0.55, 1.15)
+        and _value_in_range(close_position, 0.72, None)
+        and _value_in_range(day_return, -1.5, 4.5)
     )
-    if winner_early_range:
-        adjustment += 12
-        _add_reason(reasons, "v4早段强势区间命中")
+    if ma5_pullback:
+        adjustment += 10.0
+        _add_reason(reasons, "v4缩量回踩MA5")
 
-    winner_squeeze_breakout = (
-        _value_in_range(volume_ratio, 0.5, 1.2)
-        and _value_in_range(pre5_return, 10, 30)
-        and _value_in_range(dist_ma20, 0, 28)
-        and _value_in_range(close_position, 0.75, None)
-        and consecutive_days is not None
-        and 2 <= consecutive_days <= 3
-        and (upper_shadow is None or upper_shadow <= 0.3)
+    ma10_support = (
+        bullish_alignment
+        and _value_in_range(dist_ma10, 0.0, 4.2)
+        and (dist_ma5 is None or dist_ma5 <= 2.8)
+        and _value_in_range(volume_ratio, 0.55, 1.25)
+        and _value_in_range(close_position, 0.7, None)
+        and _value_in_range(day_return, -2.0, 4.5)
     )
-    if winner_squeeze_breakout:
-        adjustment += 10
-        _add_reason(reasons, "v4缩量突破胜率区间")
+    if ma10_support:
+        adjustment += 8.0
+        _add_reason(reasons, "v4靠近MA10承接")
 
-    weak_late_board = (
-        rank is not None
-        and rank > 50
-        and consecutive_days is not None
-        and consecutive_days >= 4
-        and _value_in_range(close_position, 0.45, 0.75)
+    healthy_breakout = (
+        bullish_alignment
+        and not limit_up_like
+        and _value_in_range(day_return, 4.0, 8.8)
+        and _value_in_range(close_position, 0.82, None)
+        and _value_in_range(volume_ratio, 0.85, 1.8)
+        and _value_in_range(dist_ma5, 1.0, 4.8)
+        and _value_in_range(pre5_return, 4.0, 18.0)
     )
-    if weak_late_board:
-        adjustment -= 16
-        _add_reason(risks, "v4回避后段弱承接长连榜")
+    if healthy_breakout:
+        adjustment += 6.0
+        _add_reason(reasons, "v4放量突破但不过热")
 
-    weak_cold_pullback = (
-        rank is not None
-        and rank > 50
-        and _value_in_range(day_return, -4, 2)
-        and pre5_return is not None
-        and pre5_return < 0
-    )
-    if weak_cold_pullback:
-        adjustment -= 10
-        _add_reason(risks, "v4回避冷启动弱回踩")
+    if bullish_alignment and _value_in_range(pre3_return, -2.0, 8.0) and _value_in_range(pre5_return, 3.0, 18.0):
+        adjustment += 4.0
+        _add_reason(reasons, "v4沿短均线抬升")
 
-    weak_mid_close = (
-        day_return is not None
+    if dist_ma5 is not None and dist_ma5 > 5.0:
+        adjustment -= 12.0
+        _add_reason(risks, "v4乖离率过大")
+    elif dist_ma5 is not None and dist_ma5 > 3.0:
+        adjustment -= 5.0
+        _add_reason(risks, "v4短线偏离MA5过多")
+
+    if (dist_ma10 is not None and dist_ma10 > 8.0) or (dist_ma20 is not None and dist_ma20 > 25.0):
+        adjustment -= 8.0
+        _add_reason(risks, "v4远离短中期均线")
+
+    if volume_ratio is not None and volume_ratio > 2.0 and day_return is not None and day_return >= 7.0:
+        adjustment -= 8.0
+        _add_reason(risks, "v4放量冲高过热")
+
+    if upper_shadow is not None and upper_shadow > 0.35 and (close_position is None or close_position < 0.82):
+        adjustment -= 6.0
+        _add_reason(risks, "v4长上影承接转弱")
+
+    if close_position is not None and close_position < 0.58 and day_return is not None and day_return > 0:
+        adjustment -= 8.0
+        _add_reason(risks, "v4正涨但收盘承接一般")
+
+    if (
+        dist_ma5 is not None
+        and dist_ma10 is not None
+        and dist_ma5 < 0
+        and dist_ma10 < 0
+        and day_return is not None
         and day_return < 0
-        and _value_in_range(close_position, 0.45, 0.75)
-    )
-    if weak_mid_close:
-        adjustment -= 10
-        _add_reason(risks, "v4回避阴线中段承接")
+    ):
+        adjustment -= 8.0
+        _add_reason(risks, "v4跌破短均线")
 
-    overheated_late = (
-        pre5_return is not None
-        and pre5_return > 30
+    if (
+        not bullish_alignment
+        and rank is not None
+        and rank > 20
         and consecutive_days is not None
-        and consecutive_days >= 4
-    )
-    if overheated_late:
-        adjustment -= 8
-        _add_reason(risks, "v4回避高位后段透支")
+        and consecutive_days >= 3
+    ):
+        adjustment -= 4.0
+        _add_reason(risks, "v4趋势未转强且热度偏后")
 
-    late_rank_fade = (
-        rank is not None
-        and rank > 50
-        and consecutive_days is not None
-        and consecutive_days >= 4
-        and rank_change is not None
-        and rank_change <= -10
-    )
-    if late_rank_fade:
-        adjustment -= 8
-        _add_reason(risks, "v4回避人气退潮后段样本")
+    return adjustment
+
+
+def _apply_v4_optional_flow_chip_rules(row: pd.Series, reasons: list[str], risks: list[str]) -> float:
+    adjustment = 0.0
+
+    concentration_90 = parse_number(row.get("concentration_90"))
+    profit_ratio = parse_number(row.get("profit_ratio"))
+    capital_flow_signal = parse_number(row.get("capital_flow_signal"))
+    board_strength = parse_number(row.get("board_strength"))
+    dragon_tiger_positive = _as_bool(row.get("dragon_tiger_positive"))
+    limit_up_like = _as_bool(row.get("limit_up_like"))
+    close_position = parse_number(row.get("close_position"))
+    day_return = parse_number(row.get("day_return_pct"))
+
+    if concentration_90 is not None and concentration_90 < 15:
+        adjustment += 6.0
+        _add_reason(reasons, "v4筹码集中加分")
+    elif concentration_90 is not None and concentration_90 > 28:
+        adjustment -= 6.0
+        _add_reason(risks, "v4筹码分散")
+
+    if profit_ratio is not None and 45 <= profit_ratio <= 82:
+        adjustment += 4.0
+        _add_reason(reasons, "v4获利盘结构健康")
+    elif profit_ratio is not None and profit_ratio > 92:
+        adjustment -= 6.0
+        _add_reason(risks, "v4获利盘过热")
+    elif profit_ratio is not None and profit_ratio < 22:
+        adjustment -= 3.0
+        _add_reason(risks, "v4获利盘结构偏弱")
+
+    if capital_flow_signal is not None and capital_flow_signal >= 3.0:
+        adjustment += 8.0
+        _add_reason(reasons, "v4主力资金强净流入")
+    elif capital_flow_signal is not None and capital_flow_signal > 0:
+        adjustment += 4.0
+        _add_reason(reasons, "v4主力资金净流入")
+    elif capital_flow_signal is not None and capital_flow_signal <= -3.0:
+        adjustment -= 8.0
+        _add_reason(risks, "v4主力资金强净流出")
+    elif capital_flow_signal is not None and capital_flow_signal < 0:
+        adjustment -= 4.0
+        _add_reason(risks, "v4主力资金净流出")
+
+    if board_strength is not None and board_strength > 0:
+        adjustment += 3.0
+        _add_reason(reasons, "v4板块联动加分")
+
+    if dragon_tiger_positive:
+        if not limit_up_like and (close_position is None or close_position >= 0.7):
+            adjustment += 5.0
+            _add_reason(reasons, "v4龙虎榜活跃")
+        else:
+            adjustment += 2.0
+            _add_reason(reasons, "v4龙虎榜提示关注")
+
+    if (
+        concentration_90 is not None
+        and concentration_90 < 16
+        and profit_ratio is not None
+        and 45 <= profit_ratio <= 82
+        and capital_flow_signal is not None
+        and capital_flow_signal > 0
+    ):
+        adjustment += 5.0
+        _add_reason(reasons, "v4筹码资金共振")
+
+    if (
+        capital_flow_signal is not None
+        and capital_flow_signal < 0
+        and day_return is not None
+        and day_return > 0
+        and (close_position is None or close_position < 0.75)
+    ):
+        adjustment -= 4.0
+        _add_reason(risks, "v4拉升但资金未跟随")
+
+    return adjustment
+
+
+def _apply_v4_event_penalty(row: pd.Series, reasons: list[str], risks: list[str]) -> float:
+    keyword_fields = [
+        "announcement_summary",
+        "event_summary",
+        "news_summary",
+        "company_highlights",
+        "fundamental_notes",
+        "risk_warning",
+    ]
+    negative_keywords = ("减持", "监管", "问询", "处罚", "立案", "警示函")
+    caution_keywords = ("风险提示", "异常波动")
+    positive_keywords = ("重大合同", "中标", "签订协议", "战略合作", "回购", "增持", "业绩预增")
+
+    negative_hits: list[str] = []
+    caution_hits: list[str] = []
+    positive_hits: list[str] = []
+    for field in keyword_fields:
+        text = str(row.get(field) or "").strip()
+        if not text:
+            continue
+        for keyword in negative_keywords:
+            if keyword in text and keyword not in negative_hits:
+                negative_hits.append(keyword)
+        for keyword in caution_keywords:
+            if keyword in text and keyword not in caution_hits:
+                caution_hits.append(keyword)
+        for keyword in positive_keywords:
+            if keyword in text and keyword not in positive_hits:
+                positive_hits.append(keyword)
+
+    adjustment = 0.0
+    if positive_hits:
+        adjustment += min(5.0, 2.0 + 1.0 * len(positive_hits))
+        _add_reason(reasons, f"v4事件催化加分（{'/'.join(positive_hits)}）")
+
+    if caution_hits:
+        caution_penalty = min(4.0, 2.0 + 1.0 * len(caution_hits))
+        adjustment -= caution_penalty
+        _add_reason(risks, f"v4事件谨慎扣分（{'/'.join(caution_hits)}）")
+
+    if negative_hits:
+        penalty = min(10.0, 4.0 + 2.0 * len(negative_hits))
+        adjustment -= penalty
+        _add_reason(risks, f"v4事件风险扣分（{'/'.join(negative_hits)}）")
 
     return adjustment
 
@@ -699,13 +833,14 @@ def score_signal(
 
     score += _market_regime_adjustment(row, reasons=reasons, risks=risks, strategy_version=strategy_version)
 
-    if strategy_version in {"v1", "v2", "v3", "v4"}:
+    if strategy_version in {"v1", "v2", "v3"}:
         score += _apply_v2_bonus_rules(row, reasons=reasons)
     if strategy_version == "v3":
         score += _apply_v3_bonus_rules(row, reasons=reasons, risks=risks)
-        score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
     if strategy_version == "v4":
-        score += _apply_v4_bonus_rules(row, reasons=reasons, risks=risks)
+        score += _apply_v4_technical_rules(row, reasons=reasons, risks=risks)
+        score += _apply_v4_optional_flow_chip_rules(row, reasons=reasons, risks=risks)
+        score += _apply_v4_event_penalty(row, reasons=reasons, risks=risks)
     if strategy_version == "v2":
         score += _apply_v2_recap_executable_rules(
             row,

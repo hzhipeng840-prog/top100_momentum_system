@@ -15,6 +15,10 @@ RAW_INDEX_PRICE_DIR = RAW_DIR / "index_prices"
 RAW_POPULARITY_CSV = RAW_DIR / "popularity_top100.csv"
 INTRADAY_SNAPSHOT_CSV = RAW_DIR / "intraday_snapshots.csv"
 INTRADAY_BAR_DIR = RAW_DIR / "intraday_bars"
+V4_NOTICE_CACHE_CSV = RAW_DIR / "v4_notice_cache.csv"
+V4_FUND_FLOW_DIR = RAW_DIR / "v4_fund_flow"
+V4_CYQ_DIR = RAW_DIR / "v4_cyq"
+V4_LHB_DIR = RAW_DIR / "v4_lhb_dates"
 
 PROCESSED_DIR = DATA_ROOT / "processed"
 FEATURES_CSV = PROCESSED_DIR / "daily_features.csv"
@@ -39,6 +43,9 @@ DIRECTORIES = [
     RAW_STOCK_PRICE_DIR,
     RAW_INDEX_PRICE_DIR,
     INTRADAY_BAR_DIR,
+    V4_FUND_FLOW_DIR,
+    V4_CYQ_DIR,
+    V4_LHB_DIR,
     PROCESSED_DIR,
     REPORT_DIR,
 ]

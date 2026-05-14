@@ -47,12 +47,12 @@ STRATEGY_PROFILES: dict[str, dict[str, object]] = {
     },
     "v4": {
         "version": "v4",
-        "name": "v4 实验版",
-        "description": "保留的实验版本，用于局部规则试验和对照。",
-        "watch_threshold": 74.0,
-        "focus_threshold": 88.0,
-        "strong_threshold": 102.0,
-        "default_metric_label": "5日收益",
+        "name": "v4 技术增强版",
+        "description": "收盘后的技术增强版，在人气动量基础上叠加均线、乖离、承接和事件风险过滤。",
+        "watch_threshold": 80.0,
+        "focus_threshold": 94.0,
+        "strong_threshold": 108.0,
+        "default_metric_label": "次日收盘收益",
         "capture_priority": ["post_close"],
     },
 }
@@ -73,7 +73,7 @@ def get_strategy_profile(version: object) -> dict[str, object]:
 def available_strategy_versions(settings: dict | None = None) -> list[str]:
     configured = settings.get("strategy_versions") if isinstance(settings, dict) else None
     if not isinstance(configured, list) or not configured:
-        return ["v1", "v2", "v3"]
+        return ["v1", "v2", "v3", "v4"]
 
     versions: list[str] = []
     for version in configured:
@@ -81,6 +81,22 @@ def available_strategy_versions(settings: dict | None = None) -> list[str]:
         if normalized not in versions:
             versions.append(normalized)
     if DEFAULT_STRATEGY_VERSION not in versions:
+        versions.insert(0, DEFAULT_STRATEGY_VERSION)
+    return versions
+
+
+def visible_strategy_versions(settings: dict | None = None) -> list[str]:
+    available = available_strategy_versions(settings)
+    configured = settings.get("visible_strategy_versions") if isinstance(settings, dict) else None
+    if not isinstance(configured, list) or not configured:
+        configured = [version for version in available if version != "v4"]
+
+    versions: list[str] = []
+    for version in configured:
+        normalized = normalize_strategy_version(version)
+        if normalized in available and normalized not in versions:
+            versions.append(normalized)
+    if DEFAULT_STRATEGY_VERSION not in versions and DEFAULT_STRATEGY_VERSION in available:
         versions.insert(0, DEFAULT_STRATEGY_VERSION)
     return versions
 

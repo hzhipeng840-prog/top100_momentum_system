@@ -22,6 +22,7 @@ from src.strategy_profiles import (
 )
 from src.trading_calendar import latest_expected_market_date, should_skip_market_fetch
 from src.utils import normalize_code, read_csv_safely
+from src.v4_context import enrich_v4_context
 
 
 def _optional_positive_int(value: object) -> int | None:
@@ -354,6 +355,10 @@ def run_pipeline(
                 popularity_df=popularity_df,
                 strategy_version=strategy_version,
             )
+            feature_df = feature_history_df.copy()
+
+        if strategy_version == "v4" and not feature_history_df.empty:
+            feature_history_df = enrich_v4_context(feature_history_df)
             feature_df = feature_history_df.copy()
 
         if strategy_version == default_strategy_version and not existing_feature_history.empty:

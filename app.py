@@ -32,7 +32,7 @@ from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
 from src.paths import FEATURES_CSV, FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
 from src.pipeline import run_pipeline
 from src.settings import load_settings
-from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label
+from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, get_strategy_profile, normalize_strategy_version, strategy_default_metric_label, visible_strategy_versions
 from src.trading_calendar import CAPTURE_TYPE_NAMES as CALENDAR_CAPTURE_TYPE_NAMES, is_a_share_trading_day
 from src.utils import normalize_code, read_csv_safely
 
@@ -151,7 +151,7 @@ st.markdown(
 
 
 APP_SETTINGS = load_settings()
-AVAILABLE_STRATEGY_VERSIONS = available_strategy_versions(APP_SETTINGS)
+AVAILABLE_STRATEGY_VERSIONS = visible_strategy_versions(APP_SETTINGS)
 DEFAULT_APP_STRATEGY_VERSION = normalize_strategy_version(APP_SETTINGS.get("default_strategy_version", DEFAULT_STRATEGY_VERSION))
 RULE_EVAL_METRIC_LABEL_TO_KEY = {
     "至今收益": "latest",
