@@ -78,6 +78,29 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertIn("600726", codes)
         self.assertNotIn("603738", codes)
 
+    @patch("src.pipeline.read_csv_safely")
+    def test_followup_refresh_codes_include_latest_slice_for_full_capture(self, mock_read_csv_safely) -> None:
+        mock_read_csv_safely.return_value = pd.DataFrame()
+
+        signal_df = pd.DataFrame(
+            [
+                {"signal_date": "2026-05-12", "capture_type": "post_close", "snapshot_time": "2026-05-12 15:00:00", "code": "600001", "is_pushed": False},
+                {"signal_date": "2026-05-13", "capture_type": "post_close", "snapshot_time": "2026-05-13 15:00:00", "code": "600002", "is_pushed": False},
+                {"signal_date": "2026-05-13", "capture_type": "post_close", "snapshot_time": "2026-05-13 15:00:00", "code": "600003", "is_pushed": False},
+                {"signal_date": "2026-05-13", "capture_type": "intraday_1430", "snapshot_time": "2026-05-13 14:30:00", "code": "600004", "is_pushed": False},
+            ]
+        )
+
+        codes = pipeline._followup_refresh_codes(
+            signal_df,
+            followup_days=[1, 3, 5, 10],
+            include_latest_slice=True,
+        )
+
+        self.assertIn("600002", codes)
+        self.assertIn("600003", codes)
+        self.assertIn("600001", codes)
+
     def test_intraday_refresh_codes_focus_latest_pushed_samples(self) -> None:
         signal_df = pd.DataFrame(
             [

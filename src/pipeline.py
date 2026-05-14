@@ -85,6 +85,7 @@ def _followup_refresh_codes(
     signal_df: pd.DataFrame,
     followup_days: list[int] | None = None,
     strategy_version: str = DEFAULT_STRATEGY_VERSION,
+    include_latest_slice: bool = False,
 ) -> list[str]:
     strategy_version = normalize_strategy_version(strategy_version)
     codes: set[str] = set()
@@ -94,6 +95,10 @@ def _followup_refresh_codes(
     if not signal_df.empty and {"code", "is_pushed"}.issubset(signal_df.columns):
         pushed = signal_df[_truthy_mask(signal_df["is_pushed"])].copy()
         codes.update(pushed["code"].dropna().astype(str).map(normalize_code))
+    if include_latest_slice:
+        latest_slice = _latest_signal_slice(signal_df)
+        if not latest_slice.empty and "code" in latest_slice.columns:
+            codes.update(latest_slice["code"].dropna().astype(str).map(normalize_code))
     max_followup_days = max((int(day) for day in (followup_days or []) if int(day) > 0), default=0)
     codes.update(_unfinished_followup_codes(signal_df, max_followup_days, strategy_version=strategy_version))
     return sorted(code for code in codes if code)
@@ -449,6 +454,7 @@ def run_pipeline(
                     signal_df,
                     followup_days=followup_days,
                     strategy_version=strategy_version,
+                    include_latest_slice=full_capture_mode,
                 )
                 followup_refresh_codes.update(current_refresh_codes)
                 if current_refresh_codes:
