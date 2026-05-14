@@ -1980,6 +1980,7 @@ else:
         v4_shadow_backtest,
         strategy_version="v4",
         metric_key=RULE_EVAL_METRIC_LABEL_TO_KEY.get(strategy_default_metric_label("v4"), "tail_next_close"),
+        group_name="推送层级",
     )
     v4_shadow_latest_push = v4_shadow.get("latest_push", pd.DataFrame())
     v4_shadow_fast_strategy = v4_shadow.get("fast_strategy", pd.DataFrame())
