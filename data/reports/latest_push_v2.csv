@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-05-19,3,002208,合肥城建,普通观察,65.0,7.53,,震荡,-0.2,-1.79,2026-05-18,1,common_index_cache,7.73,,0.708,,0.0,4,-2.0,intraday_0950,2026-05-19 09:50:00,人气Top3；当日强涨；站上20日线且不过热；连续上榜确认；震荡市里保持相对强势,-,保留在样本池，继续看次日人气和承接。,v2
