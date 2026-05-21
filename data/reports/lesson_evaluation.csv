@@ -1,7 +1,7 @@
 ﻿lesson_type,sample_count,valid_latest,avg_latest_return_pct,win_rate_latest_pct,valid_3d,avg_3d_return_pct,win_rate_3d_pct,valid_5d,avg_5d_return_pct,win_rate_5d_pct,valid_max_gain_5d,avg_max_gain_5d_pct,strong_rate_5d_pct,strategy_version
-low_level_winner,610,610,20.83,80.66,609,9.65,86.86,603,13.03,89.55,603,20.2,75.29,v1
-priority_failed,289,289,-11.72,0.0,263,-4.33,27.38,256,-6.52,19.53,256,4.33,0.0,v1
-priority_success,248,248,19.73,78.63,248,10.07,85.48,248,13.19,89.11,248,21.0,77.42,v1
-neutral,118,118,4.99,94.07,106,-0.34,51.89,97,-0.42,51.55,97,7.34,0.0,v1
-pending_data,22,0,,,0,,,0,,,0,,,v1
-backup_success,1,1,-15.0,0.0,1,13.81,100.0,1,4.15,100.0,1,20.51,100.0,v1
+low_level_winner,587,587,17.32,75.47,585,10.06,88.38,585,13.48,90.94,585,20.81,79.32,v1
+priority_failed,345,345,-13.14,0.0,295,-3.95,29.49,295,-6.07,23.73,295,4.57,0.0,v1
+priority_success,237,237,16.25,72.57,236,10.55,86.02,236,13.74,90.68,236,21.69,81.78,v1
+neutral,95,95,4.88,92.63,86,-0.04,56.98,86,-0.47,45.35,86,7.29,0.0,v1
+pending,30,0,,,0,,,0,,,0,,,v1
+backup_success,1,1,-21.15,0.0,1,13.81,100.0,1,4.15,100.0,1,20.51,100.0,v1
