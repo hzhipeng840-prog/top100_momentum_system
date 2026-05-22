@@ -485,7 +485,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertTrue(events[1].startswith("build:"))
         self.assertEqual(result["followup_price_cache"]["requested"], 1)
         self.assertEqual(_mock_build_reports.call_count, 4)
-        self.assertFalse(_mock_build_reports.call_args.kwargs["light_mode"])
+        self.assertTrue(_mock_build_reports.call_args.kwargs["light_mode"])
 
     @patch("src.pipeline.warm_intraday_cache")
     @patch("src.pipeline.build_reports", return_value={})
@@ -780,7 +780,7 @@ class PipelineFollowupRefreshTest(unittest.TestCase):
         self.assertEqual(mock_build_signals.call_count, 4)
         built_versions = [call.kwargs.get("strategy_version") for call in mock_build_signals.call_args_list]
         self.assertEqual(built_versions, ["v1", "v2", "v3", "v4"])
-        mock_enrich_v4_context.assert_called_once()
+        mock_enrich_v4_context.assert_not_called()
         self.assertIn("v2", result["strategies"])
         self.assertIn("v3", result["strategies"])
         self.assertIn("v4", result["strategies"])

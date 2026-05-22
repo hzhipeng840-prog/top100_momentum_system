@@ -1,6 +1,9 @@
 name: Top100 Momentum Pipeline
 
 on:
+  schedule:
+    # 03:10 Asia/Shanghai, Tuesday through Saturday, for research reports after the trading day.
+    - cron: "10 19 * * 1-5"
   push:
     branches:
       - main
@@ -26,6 +29,8 @@ on:
           - tail_capture
           - recompute
           - backtest
+          - nightly_reports
+          - settlement_repair
           - tests
       force_refresh_prices:
         description: Force remote price refresh
@@ -64,6 +69,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Restore market data cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/raw/stock_prices
+            data/raw/index_prices
+            data/raw/v4_notice_cache.csv
+            data/raw/v4_fund_flow
+            data/raw/v4_cyq
+            data/raw/v4_lhb_dates
+          key: top100-market-data-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            top100-market-data-${{ runner.os }}-${{ github.ref_name }}-
+
       - name: Resolve mode
         id: resolve
         shell: bash
@@ -75,6 +94,10 @@ jobs:
           if [ "${{ github.event_name }}" = "push" ]; then
             mode="tests"
             force_refresh="false"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            mode="nightly_reports"
+            force_refresh="false"
+            sync_back="true"
           elif [ "${mode}" = "recompute" ]; then
             sync_back="false"
           elif [ "${mode}" != "tests" ]; then
@@ -154,3 +177,16 @@ jobs:
             data/processed/market_regime.csv
             data/raw/popularity_top100.csv
             data/raw/intraday_snapshots.csv
+
+      - name: Save market data cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/raw/stock_prices
+            data/raw/index_prices
+            data/raw/v4_notice_cache.csv
+            data/raw/v4_fund_flow
+            data/raw/v4_cyq
+            data/raw/v4_lhb_dates
+          key: top100-market-data-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}

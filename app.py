@@ -1400,12 +1400,18 @@ def _load_csv_cached(path_str: str, modified_ns: int, size: int) -> pd.DataFrame
     return read_csv_safely(Path(path_str))
 
 
+def _bump_data_refresh_nonce() -> None:
+    _load_csv_cached.clear()
+    st.session_state["data_refresh_nonce"] = int(st.session_state.get("data_refresh_nonce", 0)) + 1
+
+
 def _load_dataset(path: Path) -> pd.DataFrame:
     path_str, modified_ns, size = _file_signature(path)
     return _load_csv_cached(path_str, modified_ns, size)
 
 
-def load_all(strategy_version: str) -> dict[str, pd.DataFrame]:
+def load_all(strategy_version: str, refresh_nonce: int = 0) -> dict[str, pd.DataFrame]:
+    del refresh_nonce
     dataset_paths = dataset_paths_for_version(strategy_version)
     return {
         key: _load_dataset(path)
@@ -1414,7 +1420,7 @@ def load_all(strategy_version: str) -> dict[str, pd.DataFrame]:
 
 
 def shadow_v4_summary_data() -> dict[str, pd.DataFrame]:
-    return load_all("v4")
+    return load_all("v4", int(st.session_state.get("data_refresh_nonce", 0)))
 
 
 def render_sidebar_daily_flow() -> str:
@@ -1442,8 +1448,8 @@ def render_sidebar_daily_flow() -> str:
                 sync_result = sync_latest_cloud_results()
             st.session_state["last_cloud_sync_result"] = sync_result
             st.session_state.pop("last_cloud_sync_error", None)
-            _load_csv_cached.clear()
             if sync_result.get("success"):
+                _bump_data_refresh_nonce()
                 if sync_result.get("updated"):
                     st.sidebar.success("已同步到最新云端结果，当前页面正在刷新。")
                 else:
@@ -1493,19 +1499,20 @@ def render_sidebar_daily_flow() -> str:
                     snapshot_time=snapshot_time or None,
                 )
             st.session_state["last_pipeline_result"] = result
+            _bump_data_refresh_nonce()
             data_status = str((result.get("data", {}) or {}).get("status", ""))
             data_reason = str((result.get("data", {}) or {}).get("reason", "") or "").strip()
             if data_status == "skipped_market_closed":
-                st.sidebar.warning(data_reason or "????????????????")
+                st.sidebar.warning(data_reason or "当前不是可采集时段，已跳过联网抓取。")
             elif data_status == "skipped_existing_snapshot":
-                st.sidebar.info(data_reason or "????????????????")
+                st.sidebar.info(data_reason or "当前快照已经存在，已使用本地缓存重算。")
             elif data_status == "stale_settlement":
-                st.sidebar.warning(data_reason or "???????????????? stale_settlement?")
+                st.sidebar.warning(data_reason or "主流程已完成，但历史结算仍未达到新鲜度要求。")
             else:
-                st.sidebar.success("??????")
+                st.sidebar.success("日常主流程已完成。")
         except Exception as exc:
             st.session_state["last_pipeline_error"] = str(exc)
-            st.sidebar.error(f"??????{exc}")
+            st.sidebar.error(f"主流程运行失败：{exc}")
 
     if "last_pipeline_result" in st.session_state:
         result = st.session_state["last_pipeline_result"]
@@ -1559,8 +1566,9 @@ def render_sidebar_daily_flow() -> str:
 
 
 selected_strategy_version = render_sidebar_daily_flow()
+data_refresh_nonce = int(st.session_state.get("data_refresh_nonce", 0))
 
-data = load_all(selected_strategy_version)
+data = load_all(selected_strategy_version, data_refresh_nonce)
 signals_df = data["signals"]
 followups_df = data["followups"]
 daily_features_df = data["daily_features"]
@@ -2077,7 +2085,11 @@ else:
                 )
 
     compare_data = {
-        version: (data if version == selected_strategy_version else load_all(version))
+        version: (
+            data
+            if version == selected_strategy_version
+            else load_all(version, data_refresh_nonce)
+        )
         for version in AVAILABLE_STRATEGY_VERSIONS
     }
     for version in AVAILABLE_STRATEGY_VERSIONS:

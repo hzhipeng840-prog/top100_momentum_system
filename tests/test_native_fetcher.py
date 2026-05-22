@@ -32,6 +32,21 @@ class NativeFetcherWarmCacheTest(unittest.TestCase):
         self.assertEqual(stats["missing"], 1)
         self.assertEqual(mock_fetch_stock_price.call_count, 3)
 
+    @patch("src.native_fetcher.fetch_stock_price")
+    def test_warm_stock_price_cache_can_force_sequential_refresh(self, mock_fetch_stock_price) -> None:
+        mock_fetch_stock_price.return_value = pd.DataFrame(), "remote"
+
+        stats = native_fetcher.warm_stock_price_cache(
+            ["000001", "000002"],
+            force_refresh=True,
+            max_workers=1,
+        )
+
+        self.assertEqual(stats["requested"], 2)
+        self.assertEqual(stats["remote"], 2)
+        self.assertEqual(mock_fetch_stock_price.call_count, 2)
+        self.assertTrue(all(call.kwargs["force_refresh"] for call in mock_fetch_stock_price.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

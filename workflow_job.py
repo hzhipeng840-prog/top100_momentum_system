@@ -12,7 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        help="Workflow mode: full, morning_capture, tail_capture, recompute, backtest, tests. recompute is local-only and should not be treated as a formal publishable result.",
+        help="Workflow mode: full, morning_capture, tail_capture, recompute, backtest, nightly_reports, settlement_repair, tests. recompute is local-only and should not be treated as a formal publishable result.",
     )
     parser.add_argument(
         "--summary-path",

@@ -18,9 +18,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "strong_return_threshold_pct": 15,
     "followup_days": [1, 3, 5, 10],
     "settlement_freshness_min_ratio": 0.95,
+    "full_report_mode": "light",
+    "enable_v4_context_in_full": False,
     "refresh_price_cache": True,
     "refresh_market_cache": True,
-    "refresh_intraday_cache": True,
+    "refresh_intraday_cache": False,
     "intraday_cache_push_only": True,
     "intraday_cache_limit": 20,
 }

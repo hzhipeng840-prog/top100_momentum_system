@@ -91,6 +91,14 @@ class WorkflowTasksTest(unittest.TestCase):
         command = build_workflow_command("backtest", python_executable="python")
         self.assertEqual(command, ["python", "daily_job.py", "--mode", "backtest", "--timezone", "Asia/Shanghai"])
 
+    def test_build_workflow_command_for_nightly_reports(self) -> None:
+        command = build_workflow_command("nightly_reports", python_executable="python")
+        self.assertEqual(command, ["python", "daily_job.py", "--mode", "nightly_reports", "--timezone", "Asia/Shanghai"])
+
+    def test_build_workflow_command_for_settlement_repair(self) -> None:
+        command = build_workflow_command("settlement_repair", python_executable="python")
+        self.assertEqual(command, ["python", "daily_job.py", "--mode", "settlement_repair", "--timezone", "Asia/Shanghai"])
+
     def test_write_workflow_summary_includes_pipeline_status(self) -> None:
         tmpdir = self._workspace_tempdir()
         try:
@@ -143,6 +151,29 @@ class WorkflowTasksTest(unittest.TestCase):
             self.assertEqual(result["snapshot_time"], "2026-05-06 14:30:00")
             self.assertTrue(summary_path.exists())
             self.assertEqual(len(list(log_dir.glob("tail_capture_*.log"))), 1)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @patch("src.workflow_tasks.subprocess.run")
+    def test_run_workflow_mode_runs_settlement_repair_after_stale_full(self, mock_run) -> None:
+        full_result = type("Completed", (), {})()
+        full_result.returncode = 0
+        full_result.stdout = '{"data":{"status":"stale_settlement"},"strategy_versions":["v1"],"default_strategy_version":"v1","features":{"rows":1},"signals":{"rows":1,"pushed_rows":1},"followups":{"rows":1},"freshness":{"status":"stale","is_fresh":false}}'
+        full_result.stderr = ""
+        repair_result = type("Completed", (), {})()
+        repair_result.returncode = 0
+        repair_result.stdout = '{"mode":"settlement_repair","success":true,"target_dates":["2026-05-08"],"repair_code_count":1,"remaining_stale_codes_by_version":{},"price_repair":[{"target_date":"2026-05-08","requested_count":1,"repaired_count":1,"remaining_count":0}],"freshness":{"status":"fresh","is_fresh":true}}'
+        repair_result.stderr = ""
+        mock_run.side_effect = [full_result, repair_result]
+
+        tmpdir = self._workspace_tempdir()
+        try:
+            result = run_workflow_mode("full", log_dir=tmpdir / "logs")
+
+            self.assertTrue(result["success"])
+            self.assertIn("repair", result)
+            self.assertEqual(result["repair"]["command"][3], "settlement_repair")
+            self.assertEqual(mock_run.call_count, 2)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

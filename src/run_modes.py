@@ -6,12 +6,13 @@ from zoneinfo import ZoneInfo
 
 from src.backtest_service import run_backtest_service
 from src.pipeline import run_pipeline
+from src.settlement_repair import run_settlement_repair
 from src.settings import load_settings
 from src.strategy_profiles import available_strategy_versions, normalize_strategy_version
 
 
 DEFAULT_RUN_MODE_TIMEZONE = "Asia/Shanghai"
-PIPELINE_RUN_MODES = ("full", "morning_capture", "tail_capture", "recompute", "backtest")
+PIPELINE_RUN_MODES = ("full", "morning_capture", "tail_capture", "recompute", "backtest", "nightly_reports", "settlement_repair")
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,8 @@ def resolve_pipeline_mode_config(
         )
     if normalized == "recompute":
         return PipelineModeConfig(mode=normalized, native_fetch=False, capture_type=None, snapshot_time=None)
+    if normalized == "nightly_reports":
+        return PipelineModeConfig(mode=normalized, native_fetch=False, capture_type="post_close", snapshot_time=None)
     return PipelineModeConfig(mode=normalized, native_fetch=False, capture_type=None, snapshot_time=None)
 
 
@@ -87,6 +90,18 @@ def run_named_mode(
     timezone: str = DEFAULT_RUN_MODE_TIMEZONE,
 ) -> dict[str, object]:
     config = resolve_pipeline_mode_config(mode, snapshot_time=snapshot_time, timezone=timezone)
+    if config.mode == "settlement_repair":
+        return run_settlement_repair()
+    if config.mode == "nightly_reports":
+        result = run_pipeline(
+            native_fetch=False,
+            capture_type=config.capture_type,
+            snapshot_time=config.snapshot_time,
+            force_refresh_prices=False,
+            light_reports=False,
+        )
+        result["mode"] = config.mode
+        return result
     if config.mode == "backtest":
         settings = load_settings()
         strategy_versions = available_strategy_versions(settings)

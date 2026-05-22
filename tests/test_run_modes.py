@@ -28,6 +28,26 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(config.native_fetch)
         self.assertEqual(config.snapshot_time, "2026-05-06 09:50:00")
 
+    @patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": True})
+    def test_run_named_mode_settlement_repair_delegates_to_repair_service(self, mock_run_settlement_repair) -> None:
+        result = run_named_mode("settlement_repair")
+
+        self.assertTrue(result["success"])
+        mock_run_settlement_repair.assert_called_once_with()
+
+    @patch("src.run_modes.run_pipeline", return_value={"reports": {"report_mode": "full"}})
+    def test_run_named_mode_nightly_reports_runs_full_local_reports(self, mock_run_pipeline) -> None:
+        result = run_named_mode("nightly_reports")
+
+        self.assertEqual(result["mode"], "nightly_reports")
+        mock_run_pipeline.assert_called_once_with(
+            native_fetch=False,
+            capture_type="post_close",
+            snapshot_time=None,
+            force_refresh_prices=False,
+            light_reports=False,
+        )
+
     @patch("src.run_modes.run_backtest_service")
     @patch("src.run_modes.available_strategy_versions", return_value=["v1", "v2"])
     @patch("src.run_modes.load_settings", return_value={"strategy_versions": ["v1", "v2"]})

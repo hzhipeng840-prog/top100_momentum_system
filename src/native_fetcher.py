@@ -274,7 +274,7 @@ def _update_price_cache_stats(stats: dict[str, object], source: str) -> None:
         stats["stale_cache"] += 1
 
 
-def warm_stock_price_cache(codes: list[str], force_refresh: bool = False) -> dict:
+def warm_stock_price_cache(codes: list[str], force_refresh: bool = False, max_workers: int | None = None) -> dict:
     normalized_codes = sorted(set(normalize_code(code) for code in codes if normalize_code(code)))
     stats = {
         "requested": len(normalized_codes),
@@ -287,14 +287,20 @@ def warm_stock_price_cache(codes: list[str], force_refresh: bool = False) -> dic
     if not normalized_codes:
         return stats
 
+    if max_workers is not None and max_workers <= 1:
+        for code in normalized_codes:
+            _, source = fetch_stock_price(code, force_refresh=force_refresh)
+            _update_price_cache_stats(stats, source)
+        return stats
+
     if len(normalized_codes) <= SEQUENTIAL_REFRESH_THRESHOLD:
         for code in normalized_codes:
             _, source = fetch_stock_price(code, force_refresh=force_refresh)
             _update_price_cache_stats(stats, source)
         return stats
 
-    max_workers = min(STOCK_CACHE_MAX_WORKERS, len(normalized_codes))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    resolved_max_workers = min(max_workers or STOCK_CACHE_MAX_WORKERS, len(normalized_codes))
+    with ThreadPoolExecutor(max_workers=resolved_max_workers) as executor:
         for _, source in executor.map(lambda code: fetch_stock_price(code, force_refresh=force_refresh), normalized_codes):
             _update_price_cache_stats(stats, source)
     return stats

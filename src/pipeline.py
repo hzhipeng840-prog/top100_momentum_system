@@ -275,6 +275,7 @@ def run_pipeline(
     capture_type: str | None = None,
     snapshot_time: str | None = None,
     force_refresh_prices: bool = False,
+    light_reports: bool | None = None,
 ) -> dict:
     settings = load_settings()
     ensure_layout()
@@ -290,8 +291,14 @@ def run_pipeline(
         "strategy_versions": strategy_versions,
         "default_strategy_version": default_strategy_version,
     }
-    light_report_capture_types = {"intraday_0935", "intraday_0950", "intraday_1030", "morning_capture", "intraday_1430", "tail_capture"}
-    light_report_mode = resolved_capture_type in light_report_capture_types
+    light_capture_types = {"intraday_0935", "intraday_0950", "intraday_1030", "morning_capture", "intraday_1430", "tail_capture"}
+    light_capture_mode = resolved_capture_type in light_capture_types
+    configured_full_light_reports = str(settings.get("full_report_mode", "light")).strip().lower() != "full"
+    report_light_mode = (
+        bool(light_reports)
+        if light_reports is not None
+        else light_capture_mode or (full_capture_mode and configured_full_light_reports)
+    )
 
     if native_fetch:
         fetch_guard = should_skip_market_fetch(resolved_capture_type)
@@ -309,7 +316,7 @@ def run_pipeline(
                 capture_type=resolved_capture_type,
                 snapshot_time=snapshot_time,
                 top_n=int(settings.get("top_n", 100)),
-                refresh_prices=bool(settings.get("refresh_price_cache", True)) and not light_report_mode,
+                refresh_prices=bool(settings.get("refresh_price_cache", True)) and not light_capture_mode,
                 force_refresh_prices=force_refresh_prices,
             )
     else:
@@ -349,7 +356,7 @@ def run_pipeline(
     feature_history_frames: dict[str, pd.DataFrame] = {}
     existing_feature_history = read_csv_safely(FEATURES_CSV)
     for strategy_version in strategy_versions:
-        if light_report_mode:
+        if light_capture_mode:
             feature_df = build_latest_daily_features(
                 popularity_df=popularity_df,
                 strategy_version=strategy_version,
@@ -362,7 +369,12 @@ def run_pipeline(
             )
             feature_df = feature_history_df.copy()
 
-        if strategy_version == "v4" and not feature_history_df.empty:
+        should_enrich_v4_context = (
+            strategy_version == "v4"
+            and not feature_history_df.empty
+            and (not report_light_mode or bool(settings.get("enable_v4_context_in_full", False)))
+        )
+        if should_enrich_v4_context:
             feature_history_df = enrich_v4_context(feature_history_df)
             feature_df = feature_history_df.copy()
 
@@ -442,7 +454,7 @@ def run_pipeline(
     followup_price_cache_stats: dict[str, object] | None = None
     for strategy_version in strategy_versions:
         signal_df = signal_frames[strategy_version]
-        if not light_report_mode:
+        if not light_capture_mode:
             should_refresh_followup_prices = (
                 native_fetch
                 and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
@@ -468,13 +480,13 @@ def run_pipeline(
         existing_followup_history = existing_followup_history_frames.get(strategy_version, pd.DataFrame())
         if not existing_followup_history.empty:
             followup_df = _merge_history_by_date(existing_followup_history, followup_df)
-        if not light_report_mode:
+        if not light_capture_mode:
             save_followups(followup_df, strategy_version=strategy_version)
         followup_frames[strategy_version] = followup_df
         strategy_results[strategy_version]["followups"] = {
             "rows": len(followup_df),
             "latest_observed_days": int(followup_df["observed_days"].max()) if not followup_df.empty and "observed_days" in followup_df.columns else 0,
-            "mode": "cached" if light_report_mode else "fresh",
+            "mode": "cached" if light_capture_mode else "fresh",
         }
         strategy_results[strategy_version]["reports"] = build_reports(
             signal_df=signal_df,
@@ -482,7 +494,7 @@ def run_pipeline(
             latest_push_limit=latest_push_limit,
             strong_return_threshold_pct=strong_threshold,
             strategy_version=strategy_version,
-            light_mode=light_report_mode,
+            light_mode=report_light_mode,
         )
 
     if followup_price_cache_stats is not None:
@@ -502,7 +514,7 @@ def run_pipeline(
         )
 
     should_retry_stale_followups = (
-        not light_report_mode
+        not light_capture_mode
         and native_fetch
         and bool(settings.get("refresh_price_cache", True))
         and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot", "stale_settlement"}
@@ -548,7 +560,7 @@ def run_pipeline(
                 latest_push_limit=latest_push_limit,
                 strong_return_threshold_pct=strong_threshold,
                 strategy_version=strategy_version,
-                light_mode=False,
+                light_mode=report_light_mode,
             )
         for strategy_version in strategy_versions:
             freshness_by_version[strategy_version] = build_data_freshness_report(
@@ -564,7 +576,7 @@ def run_pipeline(
     result["freshness"] = freshness_by_version.get(default_strategy_version, {})
 
     freshness_report = result.get("freshness", {}) or {}
-    if not light_report_mode and isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
+    if not light_capture_mode and isinstance(freshness_report, dict) and not freshness_report.get("is_fresh"):
         data_block = result.get("data", {})
         if isinstance(data_block, dict):
             if data_block.get("status") in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}:

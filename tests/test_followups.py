@@ -58,6 +58,29 @@ class FollowupsPriceCacheTest(unittest.TestCase):
         self.assertAlmostEqual(float(row["tail_next_max_gain_pct"]), 14.0, places=6)
         self.assertAlmostEqual(float(row["tail_next_max_drawdown_pct"]), 2.0, places=6)
 
+    @patch("src.followups.load_price_data")
+    def test_build_followups_fills_missing_signal_price_from_price_history(self, mock_load_price_data) -> None:
+        mock_load_price_data.return_value = pd.DataFrame(
+            [
+                {"date": pd.Timestamp("2026-05-21"), "open": 10, "close": 10, "high": 10, "low": 10, "volume": 1},
+                {"date": pd.Timestamp("2026-05-22"), "open": 11, "close": 12, "high": 13, "low": 9, "volume": 1},
+            ]
+        )
+
+        signal_df = pd.DataFrame(
+            [
+                {"signal_date": "2026-05-21", "code": "001259", "name": "利仁科技", "close": None, "price_date": None, "emotion_score": 0, "rank": 25},
+            ]
+        )
+
+        result = build_followups(signal_df, days=[1])
+        row = result.iloc[0]
+
+        self.assertTrue(bool(row["settled_1d"]))
+        self.assertEqual(float(row["signal_close"]), 10.0)
+        self.assertEqual(row["latest_price_date"], "2026-05-22")
+        self.assertAlmostEqual(float(row["return_1d_pct"]), 20.0, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

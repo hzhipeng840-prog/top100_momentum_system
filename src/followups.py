@@ -34,6 +34,22 @@ BASE_COLUMNS = [
 ]
 
 
+def _fallback_signal_price(row: pd.Series, price_df: pd.DataFrame) -> tuple[float | None, pd.Timestamp | None]:
+    signal_date = pd.to_datetime(row.get("signal_date"), errors="coerce")
+    if price_df.empty or "date" not in price_df.columns or pd.isna(signal_date):
+        return None, None
+
+    price_dates = pd.to_datetime(price_df["date"], errors="coerce").dt.normalize()
+    matched = price_df[price_dates.eq(pd.Timestamp(signal_date).normalize())].copy()
+    if matched.empty:
+        return None, None
+
+    signal_close = parse_number(matched.iloc[-1].get("close"))
+    if signal_close is None or signal_close == 0:
+        return None, None
+    return signal_close, pd.Timestamp(signal_date).normalize()
+
+
 def _empty_result(days: list[int]) -> dict:
     result: dict[str, object] = {}
     for day in days:
@@ -54,6 +70,11 @@ def calculate_followup(row: pd.Series, days: list[int], price_cache: dict[str, p
             price_cache[code] = price_df
     signal_close = parse_number(row.get("close"))
     price_date = pd.to_datetime(row.get("price_date"), errors="coerce")
+    if signal_close is None or signal_close == 0 or pd.isna(price_date):
+        fallback_close, fallback_price_date = _fallback_signal_price(row, price_df)
+        if fallback_close is not None and fallback_price_date is not None:
+            signal_close = fallback_close
+            price_date = fallback_price_date
 
     base = {
         "signal_close": signal_close,
