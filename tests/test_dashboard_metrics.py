@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from src.dashboard_metrics import summarize_push_level_performance, summarize_push_level_trend
+from src.dashboard_metrics import summarize_push_level_performance, summarize_push_level_trend, summarize_strategy_health
 
 
 class DashboardMetricsTest(unittest.TestCase):
@@ -89,6 +89,30 @@ class DashboardMetricsTest(unittest.TestCase):
         ].iloc[0]
         self.assertEqual(int(focus_latest["valid_count"]), 1)
         self.assertEqual(float(focus_latest["avg_return_pct"]), 4.0)
+
+    def test_summarize_strategy_health_flags_weak_recent_window(self) -> None:
+        followup_df = pd.DataFrame(
+            [
+                {
+                    "signal_date": f"2026-04-{day:02d}",
+                    "return_1d_pct": value,
+                    "settled_1d": True,
+                    "is_pushed": day % 2 == 0,
+                    "push_level": "重点观察" if day % 2 == 0 else "普通观察",
+                }
+                for day, value in enumerate([-6.0, -2.0, -1.0, 0.0, 1.0, -7.0, -3.0, -2.0, 0.5, 1.0], start=1)
+            ]
+        )
+
+        result = summarize_strategy_health(followup_df, metric_label="1日收益", windows=(5, 10))
+        all_latest = result[result["scope"].eq("全部") & result["window"].eq("最近10日")].iloc[0]
+        pushed_latest = result[result["scope"].eq("推送") & result["window"].eq("最近10日")].iloc[0]
+
+        self.assertEqual(int(all_latest["valid_count"]), 10)
+        self.assertEqual(float(all_latest["win_rate_pct"]), 30.0)
+        self.assertEqual(str(all_latest["health_status"]), "降权")
+        self.assertEqual(int(pushed_latest["valid_count"]), 5)
+        self.assertEqual(str(pushed_latest["health_status"]), "样本少")
 
 
 if __name__ == "__main__":

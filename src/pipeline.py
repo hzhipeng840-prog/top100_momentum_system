@@ -14,6 +14,7 @@ from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for
 from src.reports import build_reports
 from src.settings import load_settings
 from src.signals import build_signals, save_signals
+from src.strategy_health import apply_v3_health_cooldown
 from src.strategy_profiles import (
     DEFAULT_STRATEGY_VERSION,
     available_strategy_versions,
@@ -217,7 +218,11 @@ def _merge_history_by_date(existing_df: pd.DataFrame, fresh_df: pd.DataFrame) ->
     if fresh_df.empty:
         return existing_df.copy()
 
-    combined = pd.concat([existing_df.copy(), fresh_df.copy()], ignore_index=True)
+    existing = existing_df.copy()
+    fresh = fresh_df.copy()
+    existing["_history_source_order"] = 0
+    fresh["_history_source_order"] = 1
+    combined = pd.concat([existing, fresh], ignore_index=True)
     if "signal_date" not in combined.columns or "code" not in combined.columns:
         return fresh_df.copy()
 
@@ -232,8 +237,9 @@ def _merge_history_by_date(existing_df: pd.DataFrame, fresh_df: pd.DataFrame) ->
 
     combined = combined.dropna(subset=["signal_date"]).copy()
     combined = combined[combined["code"].ne("")].copy()
-    combined = combined.sort_values(["signal_date", "snapshot_time", "rank"], na_position="last")
+    combined = combined.sort_values(["signal_date", "snapshot_time", "rank", "_history_source_order"], na_position="last")
     combined = combined.drop_duplicates(["signal_date", "code"], keep="last")
+    combined = combined.drop(columns=["_history_source_order"], errors="ignore")
     return combined.sort_values(["signal_date", "rank"], na_position="last").reset_index(drop=True)
 
 
@@ -426,6 +432,9 @@ def run_pipeline(
     existing_signal_history_frames: dict[str, pd.DataFrame] = {
         strategy_version: read_csv_safely(signals_csv_for(strategy_version)) for strategy_version in strategy_versions
     }
+    existing_followup_history_frames: dict[str, pd.DataFrame] = {
+        strategy_version: read_csv_safely(followups_csv_for(strategy_version)) for strategy_version in strategy_versions
+    }
     for strategy_version in strategy_versions:
         existing_signal_history = existing_signal_history_frames.get(strategy_version, pd.DataFrame())
         signal_df = build_signals(
@@ -436,6 +445,11 @@ def run_pipeline(
         )
         if not existing_signal_history.empty:
             signal_df = _merge_history_by_date(existing_signal_history, signal_df)
+        signal_df = apply_v3_health_cooldown(
+            signal_df,
+            existing_followup_history_frames.get(strategy_version, pd.DataFrame()),
+            strategy_version=strategy_version,
+        )
         save_signals(signal_df, strategy_version=strategy_version)
         signal_frames[strategy_version] = signal_df
         strategy_results[strategy_version]["signals"] = {
@@ -447,9 +461,6 @@ def run_pipeline(
     result["signals"] = strategy_results.get(default_strategy_version, {}).get("signals", {})
 
     followup_frames: dict[str, pd.DataFrame] = {}
-    existing_followup_history_frames: dict[str, pd.DataFrame] = {
-        strategy_version: read_csv_safely(followups_csv_for(strategy_version)) for strategy_version in strategy_versions
-    }
     followup_refresh_codes: set[str] = set()
     followup_price_cache_stats: dict[str, object] | None = None
     for strategy_version in strategy_versions:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -110,7 +111,7 @@ def _prepare_backtest_frame(signal_df: pd.DataFrame, followup_df: pd.DataFrame) 
                 if column not in df.columns:
                     df[column] = df[signal_column]
                 else:
-                    df[column] = df[column].where(df[column].notna(), df[signal_column])
+                    df[column] = df[signal_column].where(df[signal_column].notna(), df[column])
                 df = df.drop(columns=[signal_column], errors="ignore")
 
     if "rank_bucket" not in df.columns:
@@ -228,8 +229,8 @@ def run_backtest_service(
     )
     rule_evaluation_df = build_rule_evaluation_view(summary_df, strategy_version=normalized_version)
 
-    resolved_summary_path = backtest_summary_csv_for(normalized_version) if summary_path is None else summary_path
-    resolved_rule_eval_path = rule_evaluation_csv_for(normalized_version) if rule_evaluation_path is None else rule_evaluation_path
+    resolved_summary_path = backtest_summary_csv_for(normalized_version) if summary_path is None else Path(summary_path)
+    resolved_rule_eval_path = rule_evaluation_csv_for(normalized_version) if rule_evaluation_path is None else Path(rule_evaluation_path)
     write_csv(summary_df, resolved_summary_path)
     write_csv(rule_evaluation_df, resolved_rule_eval_path)
 

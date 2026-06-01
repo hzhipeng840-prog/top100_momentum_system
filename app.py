@@ -26,7 +26,7 @@ from src.backtest_queries import (
     build_backtest_metric_snapshot,
     normalize_backtest_summary,
 )
-from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend
+from src.dashboard_metrics import RETURN_METRIC_SPECS, summarize_push_level_performance, summarize_push_level_trend, summarize_strategy_health
 from src.freshness import build_data_freshness_report
 from src.intraday_fetcher import fetch_intraday_bars, fetch_intraday_snapshot
 from src.paths import FEATURES_CSV, FAST_STRATEGY_AUDIT_CSV, FAST_STRATEGY_CSV, FOLLOWUPS_CSV, LATEST_PUSH_CSV, LESSON_EVALUATION_CSV, MARKET_REGIME_CSV, PROJECT_ROOT, RAW_POPULARITY_CSV, RAW_STOCK_PRICE_DIR, RULE_EVALUATION_CSV, SIGNALS_CSV, STRONG_RECAP_CSV, backtest_summary_csv_for, fast_strategy_audit_csv_for, fast_strategy_csv_for, followups_csv_for, latest_push_csv_for, lesson_evaluation_csv_for, rule_evaluation_csv_for, signals_csv_for, strong_recap_csv_for
@@ -162,13 +162,14 @@ RULE_EVAL_METRIC_LABEL_TO_KEY = {
     "5日收益": "5d",
     "10日收益": "10d",
 }
+CORE_BACKTEST_METRIC_KEYS = ["latest", "tail_next_open", "tail_next_close", "1d", "3d", "5d"]
 
 
 DAILY_FLOW_STEPS = [
     ("1", "抓取 Top100", "从本项目接口抓取人气榜，并更新相关个股日 K 缓存。"),
     ("2", "生成特征", "计算排名、连续上榜、涨跌幅、收盘位置、量比、均线偏离。"),
     ("3", "情绪打分", "输出情绪持续分、推送层级、原因和风险。"),
-    ("4", "后验跟踪", "结算 1/3/5/10 日收益、最大上涨、最大回撤。"),
+    ("4", "后验跟踪", "结算次日和 1/3/5 日核心收益；10 日仅后台保留。"),
     ("5", "更新报表", "刷新快策略、今日推送、样本追踪、强势复盘和规则评估。"),
 ]
 
@@ -302,15 +303,16 @@ def render_today_snapshot_status() -> None:
         st.sidebar.caption(detail)
 
 
-def sync_latest_cloud_results() -> dict[str, object]:
-    git_executable = shutil.which("git")
-    if not git_executable:
-        raise RuntimeError("当前环境没有检测到 git，无法同步云端结果。")
+GENERATED_SYNC_PREFIXES = ("data/processed/", "data/reports/")
+GENERATED_SYNC_FILES = {
+    "data/raw/intraday_snapshots.csv",
+    "data/raw/popularity_top100.csv",
+}
 
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    completed = subprocess.run(
-        [git_executable, "pull", "--ff-only"],
+
+def _run_git_command(args: list[str], git_executable: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [git_executable, *args],
         cwd=PROJECT_ROOT,
         text=True,
         capture_output=True,
@@ -319,14 +321,105 @@ def sync_latest_cloud_results() -> dict[str, object]:
         check=False,
         env=env,
     )
+
+
+def _git_output(completed: subprocess.CompletedProcess[str]) -> str:
     stdout = str(completed.stdout or "").strip()
     stderr = str(completed.stderr or "").strip()
-    combined_output = "\n".join(part for part in [stdout, stderr] if part).strip()
+    return "\n".join(part for part in [stdout, stderr] if part).strip()
+
+
+def _parse_git_status_paths(status_output: str) -> list[str]:
+    paths: list[str] = []
+    for line in str(status_output or "").splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[-1].strip()
+        path = path.strip('"').replace("\\", "/")
+        if path:
+            paths.append(path)
+    return paths
+
+
+def _is_generated_sync_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/")
+    return normalized in GENERATED_SYNC_FILES or normalized.startswith(GENERATED_SYNC_PREFIXES)
+
+
+def _backup_and_restore_generated_outputs(git_executable: str, env: dict[str, str]) -> dict[str, object]:
+    status_completed = _run_git_command(
+        ["status", "--porcelain", "--untracked-files=no"],
+        git_executable=git_executable,
+        env=env,
+    )
+    if status_completed.returncode != 0:
+        return {"success": False, "output": _git_output(status_completed), "files": []}
+
+    dirty_paths = _parse_git_status_paths(status_completed.stdout)
+    generated_paths = sorted(path for path in dirty_paths if _is_generated_sync_path(path))
+    if not generated_paths:
+        return {"success": True, "files": []}
+
+    backup_dir = PROJECT_ROOT / "workflow_artifacts" / "cloud_sync_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"generated_outputs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.patch"
+    diff_completed = _run_git_command(
+        ["diff", "--binary", f"--output={backup_path}", "--", *generated_paths],
+        git_executable=git_executable,
+        env=env,
+    )
+    if diff_completed.returncode != 0:
+        return {"success": False, "output": _git_output(diff_completed), "files": generated_paths}
+
+    restore_completed = _run_git_command(
+        ["restore", "--", *generated_paths],
+        git_executable=git_executable,
+        env=env,
+    )
+    if restore_completed.returncode != 0:
+        return {
+            "success": False,
+            "output": _git_output(restore_completed),
+            "files": generated_paths,
+            "backup_path": str(backup_path),
+        }
+    return {"success": True, "files": generated_paths, "backup_path": str(backup_path)}
+
+
+def sync_latest_cloud_results() -> dict[str, object]:
+    git_executable = shutil.which("git")
+    if not git_executable:
+        raise RuntimeError("当前环境没有检测到 git，无法同步云端结果。")
+
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    backup_result = _backup_and_restore_generated_outputs(git_executable, env)
+    if not backup_result.get("success"):
+        return {
+            "success": False,
+            "returncode": 1,
+            "output": str(backup_result.get("output") or "failed to prepare generated output backup"),
+            "updated": False,
+            "auto_backup": backup_result,
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }
+
+    completed = _run_git_command(["pull", "--ff-only"], git_executable=git_executable, env=env)
+    combined_output = _git_output(completed)
+    backup_files = backup_result.get("files") if isinstance(backup_result.get("files"), list) else []
+    backup_path = str(backup_result.get("backup_path") or "")
+    backup_note = ""
+    if backup_files and backup_path:
+        backup_note = f"Local generated outputs were backed up before sync: {backup_path}"
+    result_output = "\n".join(part for part in [backup_note, combined_output] if part).strip()
     return {
         "success": completed.returncode == 0,
         "returncode": completed.returncode,
-        "output": combined_output,
+        "output": result_output,
         "updated": "Already up to date." not in combined_output,
+        "auto_backup": backup_result,
         "finished_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -1580,7 +1673,7 @@ rule_eval_df = (
     build_backtest_metric_matrix(
         backtest_summary_df,
         strategy_version=selected_strategy_version,
-        metric_keys=list(BACKTEST_METRIC_KEY_TO_LABEL.keys()),
+        metric_keys=CORE_BACKTEST_METRIC_KEYS,
     )
     if not backtest_summary_df.empty
     else data["rule_eval"]
@@ -1646,6 +1739,55 @@ if freshness_summary:
         st.caption(freshness_summary)
     else:
         st.warning(freshness_summary)
+strategy_health_metric = "次日收盘收益" if selected_strategy_version in {"v2", "v3", "v4"} else "1日收益"
+strategy_health_df = summarize_strategy_health(followups_df, metric_label=strategy_health_metric)
+if not strategy_health_df.empty:
+    focus_health_df = strategy_health_df[
+        strategy_health_df["scope"].eq("全部") & strategy_health_df["window"].eq("最近10日")
+    ]
+    if not focus_health_df.empty:
+        health_row = focus_health_df.iloc[0]
+        health_status = str(health_row.get("health_status", "-") or "-")
+        health_text = (
+            f"策略健康度：{health_status}（{strategy_health_metric}，"
+            f"最近10个已结算日胜率 {health_row.get('win_rate_pct', '-')}%，"
+            f"均值 {health_row.get('avg_return_pct', '-')}%，"
+            f"大跌样本 {health_row.get('loss_5_rate_pct', '-')}%）"
+        )
+        if health_status == "降权":
+            st.warning(health_text)
+        elif health_status == "观察":
+            st.info(health_text)
+        else:
+            st.caption(health_text)
+    with st.expander("策略健康度明细", expanded=False):
+        display_table(
+            strategy_health_df,
+            columns=[
+                "scope",
+                "window",
+                "date_range",
+                "valid_count",
+                "win_rate_pct",
+                "avg_return_pct",
+                "median_return_pct",
+                "loss_5_rate_pct",
+                "health_status",
+                "health_note",
+            ],
+            rename={
+                "scope": "范围",
+                "window": "窗口",
+                "date_range": "样本日期",
+                "valid_count": "已结算",
+                "win_rate_pct": "胜率%",
+                "avg_return_pct": "均值%",
+                "median_return_pct": "中位%",
+                "loss_5_rate_pct": "≤-5%占比",
+                "health_status": "状态",
+                "health_note": "提示",
+            },
+        )
 active_view = st.radio(
     "查看页面",
     options=["今日决策", "样本追踪", "强势复盘", "规则评估"],
@@ -2100,7 +2242,7 @@ else:
         compare_data[version]["rule_eval"] = build_backtest_metric_matrix(
             version_backtest_summary,
             strategy_version=version,
-            metric_keys=list(BACKTEST_METRIC_KEY_TO_LABEL.keys()),
+            metric_keys=CORE_BACKTEST_METRIC_KEYS,
         )
     compare_versions = [
         version
@@ -2260,6 +2402,7 @@ else:
             summary_metric_options = [
                 (metric_key, metric_label)
                 for metric_key, metric_label in BACKTEST_METRIC_KEY_TO_LABEL.items()
+                if metric_key in CORE_BACKTEST_METRIC_KEYS
                 if any(compare_backtest_summary.get(version, pd.DataFrame())["metric_key"].eq(metric_key).any() for version in summary_versions)
             ]
             summary_group_options = [

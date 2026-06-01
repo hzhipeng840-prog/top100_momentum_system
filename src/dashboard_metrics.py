@@ -20,6 +20,14 @@ def _truthy_mask(series: pd.Series) -> pd.Series:
     return series.fillna("").astype(str).str.strip().str.lower().isin(["true", "1", "yes", "y"])
 
 
+def _pushed_mask(df: pd.DataFrame) -> pd.Series:
+    if "is_pushed" in df.columns:
+        return _truthy_mask(df["is_pushed"])
+    if "push_level" in df.columns:
+        return df["push_level"].fillna("").astype(str).isin(["强推观察", "重点观察"])
+    return pd.Series(False, index=df.index)
+
+
 def summarize_push_level_performance(
     followup_df: pd.DataFrame,
     signal_date: str,
@@ -145,3 +153,118 @@ def summarize_push_level_trend(
     trend_df["_order"] = trend_df["push_level"].map(order_map).fillna(len(order_map) + 1)
     trend_df = trend_df.sort_values(["signal_date", "_order", "push_level"]).drop(columns=["_order"]).reset_index(drop=True)
     return trend_df[columns]
+
+
+def summarize_strategy_health(
+    followup_df: pd.DataFrame,
+    metric_label: str = "1日收益",
+    windows: tuple[int, ...] = (5, 10),
+) -> pd.DataFrame:
+    columns = [
+        "scope",
+        "window",
+        "date_range",
+        "settled_day_count",
+        "sample_count",
+        "valid_count",
+        "up_count",
+        "down_or_flat_count",
+        "win_rate_pct",
+        "avg_return_pct",
+        "median_return_pct",
+        "loss_5_count",
+        "loss_5_rate_pct",
+        "health_status",
+        "health_note",
+    ]
+    if followup_df.empty or metric_label not in RETURN_METRIC_SPECS:
+        return pd.DataFrame(columns=columns)
+
+    metric_column, settled_column = RETURN_METRIC_SPECS[metric_label]
+    if "signal_date" not in followup_df.columns or metric_column not in followup_df.columns:
+        return pd.DataFrame(columns=columns)
+
+    working = followup_df.copy()
+    working["signal_date"] = pd.to_datetime(working["signal_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    working = working[working["signal_date"].notna()].copy()
+    if settled_column is not None and settled_column in working.columns:
+        working = working[_truthy_mask(working[settled_column])].copy()
+    working[metric_column] = pd.to_numeric(working[metric_column], errors="coerce")
+    working = working[working[metric_column].notna()].copy()
+    if working.empty:
+        return pd.DataFrame(columns=columns)
+
+    available_dates = sorted(date for date in working["signal_date"].dropna().astype(str).unique() if date)
+    rows: list[dict[str, object]] = []
+    for window in windows:
+        selected_dates = available_dates[-window:]
+        if not selected_dates:
+            continue
+        window_df = working[working["signal_date"].isin(selected_dates)].copy()
+        date_range = f"{selected_dates[0]} ~ {selected_dates[-1]}" if len(selected_dates) > 1 else selected_dates[0]
+        for scope, group in [
+            ("全部", window_df),
+            ("推送", window_df[_pushed_mask(window_df)].copy()),
+        ]:
+            sample_count = len(group)
+            valid_count = int(group[metric_column].notna().sum())
+            if valid_count:
+                returns = group[metric_column].dropna()
+                up_count = int((returns > 0).sum())
+                down_or_flat_count = int((returns <= 0).sum())
+                win_rate_pct = round(float((returns > 0).mean() * 100), 2)
+                avg_return_pct = round(float(returns.mean()), 2)
+                median_return_pct = round(float(returns.median()), 2)
+                loss_5_count = int((returns <= -5).sum())
+                loss_5_rate_pct = round(float((returns <= -5).mean() * 100), 2)
+            else:
+                up_count = 0
+                down_or_flat_count = 0
+                win_rate_pct = None
+                avg_return_pct = None
+                median_return_pct = None
+                loss_5_count = 0
+                loss_5_rate_pct = None
+
+            if valid_count < 10:
+                health_status = "样本少"
+                health_note = f"{metric_label}已结算样本不足，先观察。"
+            elif (
+                (win_rate_pct is not None and win_rate_pct < 45)
+                or (avg_return_pct is not None and avg_return_pct < 0)
+                or (loss_5_rate_pct is not None and loss_5_rate_pct >= 25)
+            ):
+                health_status = "降权"
+                health_note = f"{metric_label}滚动表现偏弱，推送应收缩。"
+            elif (
+                (win_rate_pct is not None and win_rate_pct < 50)
+                or (avg_return_pct is not None and avg_return_pct < 0.5)
+                or (loss_5_rate_pct is not None and loss_5_rate_pct >= 18)
+            ):
+                health_status = "观察"
+                health_note = f"{metric_label}滚动优势不明显，维持谨慎。"
+            else:
+                health_status = "正常"
+                health_note = f"{metric_label}滚动表现正常。"
+
+            rows.append(
+                {
+                    "scope": scope,
+                    "window": f"最近{window}日",
+                    "date_range": date_range,
+                    "settled_day_count": len(selected_dates),
+                    "sample_count": sample_count,
+                    "valid_count": valid_count,
+                    "up_count": up_count,
+                    "down_or_flat_count": down_or_flat_count,
+                    "win_rate_pct": win_rate_pct,
+                    "avg_return_pct": avg_return_pct,
+                    "median_return_pct": median_return_pct,
+                    "loss_5_count": loss_5_count,
+                    "loss_5_rate_pct": loss_5_rate_pct,
+                    "health_status": health_status,
+                    "health_note": health_note,
+                }
+            )
+
+    return pd.DataFrame(rows, columns=columns)

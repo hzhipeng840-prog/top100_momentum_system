@@ -621,9 +621,11 @@ def _market_regime_adjustment(row: pd.Series, reasons: list[str], risks: list[st
 
     relative_1d = parse_number(row.get("relative_1d_pct"))
     relative_5d = parse_number(row.get("relative_5d_pct"))
+    market_score = parse_number(row.get("market_score"))
     market_1d = parse_number(row.get("market_1d_pct"))
     market_5d = parse_number(row.get("market_5d_pct"))
     day_return = parse_number(row.get("day_return_pct"))
+    pre5_return = parse_number(row.get("pre5_return_pct"))
     close_position = parse_number(row.get("close_position"))
     rank = parse_number(row.get("rank"))
     consecutive_days = parse_number(row.get("consecutive_days"))
@@ -690,6 +692,42 @@ def _market_regime_adjustment(row: pd.Series, reasons: list[str], risks: list[st
     if consecutive_days is not None and consecutive_days >= 5 and market_regime == "弱势":
         adjustment -= 2.0 * version_weight
         _add_reason(risks, "弱市里的长连榜样本优先降权")
+
+    weak_market_health = (
+        (market_score is not None and market_score < 50)
+        or (market_5d is not None and market_5d <= 0)
+    )
+    if weak_market_health and not relative_strength:
+        penalty = 3.0 * version_weight
+        if strategy_version == "v3":
+            penalty += 3.0
+        if rank is not None and rank > 30:
+            penalty += 2.0
+        adjustment -= penalty
+        _add_reason(risks, "市场健康度不足，收缩推送")
+
+    if market_score is not None and market_score < 40 and not relative_strength:
+        adjustment -= 3.0 * version_weight
+        _add_reason(risks, "市场健康度偏弱")
+
+    crowded_top3 = (
+        rank is not None
+        and rank <= 3
+        and (
+            (pre5_return is not None and pre5_return >= 20)
+            or (consecutive_days is not None and consecutive_days >= 4)
+            or (day_return is not None and day_return >= 7)
+        )
+    )
+    soft_market_for_top3 = (
+        market_regime in {"震荡", "弱势"}
+        or (market_score is not None and market_score < 60)
+        or (market_5d is not None and market_5d <= 1.5)
+    )
+    if crowded_top3 and soft_market_for_top3:
+        penalty = 8.0 if strategy_version == "v3" else 6.0
+        adjustment -= penalty * version_weight
+        _add_reason(risks, "Top3高热度拥挤，次日兑现风险")
 
     return adjustment
 
