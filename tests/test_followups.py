@@ -57,6 +57,11 @@ class FollowupsPriceCacheTest(unittest.TestCase):
         self.assertAlmostEqual(float(row["tail_next_close_pct"]), 10.0, places=6)
         self.assertAlmostEqual(float(row["tail_next_max_gain_pct"]), 14.0, places=6)
         self.assertAlmostEqual(float(row["tail_next_max_drawdown_pct"]), 2.0, places=6)
+        self.assertEqual(row["open_buy_date"], "2026-04-23")
+        self.assertAlmostEqual(float(row["open_buy_price"]), 10.5, places=6)
+        self.assertTrue(bool(row["settled_open_buy_1d"]))
+        self.assertAlmostEqual(float(row["open_buy_return_1d_pct"]), 4.76, places=6)
+        self.assertFalse(bool(row["settled_open_buy_3d"]))
 
     @patch("src.followups.load_price_data")
     def test_build_followups_fills_missing_signal_price_from_price_history(self, mock_load_price_data) -> None:

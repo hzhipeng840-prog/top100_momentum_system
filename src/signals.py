@@ -9,6 +9,8 @@ from src.utils import parse_number, read_csv_safely, write_csv
 
 
 OBSERVATION_POOL_LEVEL = "观察池"
+CLOSE_STRENGTH_CONFIRM_LEVEL = "收盘强势观察"
+V1_DEFAULT_DAILY_PUSH_LIMIT = 5
 
 
 def _add_reason(reasons: list[str], text: str) -> None:
@@ -61,6 +63,16 @@ def _buyability_gate(row: pd.Series) -> tuple[bool, str | None]:
         return False, "涨停封板不可买"
 
     return True, None
+
+
+def _is_limit_up_confirmation(row: pd.Series) -> bool:
+    limit_up_like = _as_bool(row.get("limit_up_like"))
+    if limit_up_like:
+        return True
+
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    return bool(day_return is not None and day_return >= 9.5 and (close_position is None or close_position >= 0.9))
 
 
 def _push_level_from_score(score: float, strategy_version: str, min_score: float) -> tuple[str, str]:
@@ -890,12 +902,24 @@ def score_signal(
     push_level, action = _push_level_from_score(score, strategy_version=strategy_version, min_score=min_score)
     watch_threshold, _, _ = strategy_thresholds(strategy_version, min_score=min_score)
     buyable, buyability_reason = _buyability_gate(row)
+    close_strength_confirmation = (
+        strategy_version == "v1"
+        and _is_limit_up_confirmation(row)
+        and buyability_reason == "涨停封板不可买"
+    )
+    if close_strength_confirmation:
+        buyable = True
+        _add_reason(reasons, "收盘强势，次日确认")
+        _add_reason(risks, "次日高开或一字风险")
     if not buyable:
         _add_reason(risks, buyability_reason or "封板不可买")
     observation_pool = price_status == "ok" and not buyable
     if observation_pool:
         push_level = OBSERVATION_POOL_LEVEL
         action = f"{buyability_reason or '封板不可买'}，放观察池跟踪"
+    elif close_strength_confirmation and score >= watch_threshold and price_status == "ok":
+        push_level = CLOSE_STRENGTH_CONFIRM_LEVEL
+        action = "收盘强势票：只做次日确认，不按收盘价追；一字或高开过高先放弃，分歧承接再看。"
     return {
         "emotion_score": score,
         "push_level": push_level,
@@ -905,6 +929,147 @@ def score_signal(
         "suggested_action": action,
         "strategy_version": strategy_version,
     }
+
+
+def _append_note(value: object, note: str) -> str:
+    text = str(value or "").strip()
+    if not text or text == "-":
+        return note
+    if note in text.split("；"):
+        return text
+    return f"{text}；{note}"
+
+
+def _v1_selection_priority(row: pd.Series) -> float:
+    rank = parse_number(row.get("rank"))
+    score = parse_number(row.get("emotion_score")) or 0.0
+    day_return = parse_number(row.get("day_return_pct"))
+    close_position = parse_number(row.get("close_position"))
+    volume_ratio = parse_number(row.get("volume_ratio_5"))
+    pre5_return = parse_number(row.get("pre5_return_pct"))
+    dist_ma20 = parse_number(row.get("dist_ma20_pct"))
+    consecutive_days = parse_number(row.get("consecutive_days"))
+    rank_change = parse_number(row.get("rank_change"))
+    market_score = parse_number(row.get("market_score"))
+    market_5d = parse_number(row.get("market_5d_pct"))
+    relative_5d = parse_number(row.get("relative_5d_pct"))
+
+    priority = score
+    if _is_limit_up_confirmation(row):
+        priority += 8.0
+    if rank is not None:
+        if rank <= 10:
+            priority += 12.0
+        elif rank <= 20:
+            priority += 8.0
+        elif rank > 50:
+            priority -= 10.0
+    if pre5_return is not None:
+        if 8 <= pre5_return <= 30:
+            priority += 6.0
+        elif pre5_return > 35:
+            priority -= 12.0
+    if dist_ma20 is not None:
+        if 0 <= dist_ma20 <= 28:
+            priority += 5.0
+        elif dist_ma20 > 35:
+            priority -= 10.0
+    if volume_ratio is not None:
+        if 0.7 <= volume_ratio <= 2.2:
+            priority += 5.0
+        elif volume_ratio > 2.8:
+            priority -= 8.0
+    if consecutive_days is not None:
+        if 1 <= consecutive_days <= 3:
+            priority += 4.0
+        elif consecutive_days >= 5:
+            priority -= 9.0
+    if close_position is not None and close_position >= 0.85:
+        priority += 4.0
+    if rank_change is None or rank_change >= 0:
+        priority += 2.0
+    weak_market = (market_score is not None and market_score < 50) or (market_5d is not None and market_5d <= 0)
+    if weak_market:
+        if relative_5d is not None and relative_5d >= 5:
+            priority += 2.0
+        else:
+            priority -= 8.0
+    elif market_score is not None and market_score >= 55 and (market_5d is None or market_5d >= 0):
+        priority += 4.0
+    crowded_top3 = (
+        rank is not None
+        and rank <= 3
+        and (
+            (pre5_return is not None and pre5_return >= 20)
+            or (consecutive_days is not None and consecutive_days >= 4)
+            or (day_return is not None and day_return >= 7)
+        )
+    )
+    if crowded_top3:
+        priority -= 10.0
+    return round(priority, 2)
+
+
+def apply_v1_daily_push_limit(
+    signal_df: pd.DataFrame,
+    max_pushed: int | None = V1_DEFAULT_DAILY_PUSH_LIMIT,
+) -> pd.DataFrame:
+    if signal_df.empty or max_pushed is None or max_pushed <= 0:
+        return signal_df.copy()
+    if "strategy_version" in signal_df.columns:
+        versions = set(signal_df["strategy_version"].dropna().astype(str).str.lower())
+        if versions and versions != {"v1"}:
+            return signal_df.copy()
+    if not {"signal_date", "is_pushed"}.issubset(signal_df.columns):
+        return signal_df.copy()
+
+    result = signal_df.copy()
+    for column, default in [
+        ("push_level", OBSERVATION_POOL_LEVEL),
+        ("reasons", "-"),
+        ("risks", "-"),
+        ("suggested_action", "-"),
+    ]:
+        if column not in result.columns:
+            result[column] = default
+    result["_v1_selection_priority"] = result.apply(_v1_selection_priority, axis=1)
+    result["_is_pushed_candidate"] = result["is_pushed"].apply(_as_bool)
+    if "price_status" in result.columns:
+        result["_is_pushed_candidate"] &= result["price_status"].fillna("").astype(str).eq("ok")
+
+    for _, day_df in result.groupby("signal_date", dropna=False):
+        candidates = day_df[day_df["_is_pushed_candidate"]].copy()
+        if candidates.empty or len(candidates) <= max_pushed:
+            selected_index = set(candidates.index)
+        else:
+            sort_columns = ["_v1_selection_priority"]
+            ascending = [False]
+            if "emotion_score" in candidates.columns:
+                sort_columns.append("emotion_score")
+                ascending.append(False)
+            if "rank" in candidates.columns:
+                sort_columns.append("rank")
+                ascending.append(True)
+            selected = candidates.sort_values(sort_columns, ascending=ascending, na_position="last").head(max_pushed)
+            selected_index = set(selected.index)
+
+        candidate_index = set(candidates.index)
+        demoted_index = list(candidate_index - selected_index)
+        if selected_index:
+            selected_list = list(selected_index)
+            result.loc[selected_list, "reasons"] = result.loc[selected_list, "reasons"].apply(
+                lambda value: _append_note(value, "v1每日精选入选")
+            )
+        if demoted_index:
+            result.loc[demoted_index, "is_pushed"] = False
+            result.loc[demoted_index, "push_level"] = OBSERVATION_POOL_LEVEL
+            result.loc[demoted_index, "risks"] = result.loc[demoted_index, "risks"].apply(
+                lambda value: _append_note(value, "v1每日精选未入前5")
+            )
+            result.loc[demoted_index, "suggested_action"] = "未入当日精选前5，保留观察，不进入今日执行单。"
+
+    result = result.drop(columns=["_v1_selection_priority", "_is_pushed_candidate"], errors="ignore")
+    return result
 
 
 def build_signals(

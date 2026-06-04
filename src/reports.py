@@ -84,6 +84,8 @@ FAST_STRATEGY_AUDIT_COLUMNS = [
     "return_1d_pct",
     "return_3d_pct",
     "return_5d_pct",
+    "open_buy_return_3d_pct",
+    "open_buy_return_5d_pct",
     "max_gain_5d_pct",
     "capture_type",
     "snapshot_time",
@@ -98,12 +100,17 @@ RULE_EVAL_METRIC_SPECS = [
     ("1d", "return_1d_pct", "settled_1d"),
     ("3d", "return_3d_pct", "settled_3d"),
     ("5d", "return_5d_pct", "settled_5d"),
+    ("open_buy_1d", "open_buy_return_1d_pct", "settled_open_buy_1d"),
+    ("open_buy_3d", "open_buy_return_3d_pct", "settled_open_buy_3d"),
+    ("open_buy_5d", "open_buy_return_5d_pct", "settled_open_buy_5d"),
     ("10d", "return_10d_pct", "settled_10d"),
 ]
 
 
 def _best_return_metric_columns(strategy_version: str) -> list[str]:
     columns = [
+        "open_buy_return_5d_pct",
+        "open_buy_return_3d_pct",
         "return_5d_pct",
         "return_3d_pct",
         "latest_return_pct",
@@ -244,6 +251,8 @@ def build_strong_recap(
         "best_return_available",
         "return_3d_pct",
         "return_5d_pct",
+        "open_buy_return_3d_pct",
+        "open_buy_return_5d_pct",
         "return_10d_pct",
         "max_gain_3d_pct",
         "max_gain_5d_pct",
@@ -899,6 +908,8 @@ def build_fast_strategy_audit(
         "return_1d_pct",
         "return_3d_pct",
         "return_5d_pct",
+        "open_buy_return_3d_pct",
+        "open_buy_return_5d_pct",
         "max_gain_5d_pct",
     ]
     followup_available = [column for column in followup_cols if column in followups.columns]

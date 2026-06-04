@@ -13,7 +13,7 @@ from src.native_fetcher import run_native_fetch, warm_stock_price_cache
 from src.paths import FEATURES_CSV, ensure_layout, fast_strategy_history_csv_for, followups_csv_for, signals_csv_for
 from src.reports import build_reports
 from src.settings import load_settings
-from src.signals import build_signals, save_signals
+from src.signals import apply_v1_daily_push_limit, build_signals, save_signals
 from src.strategy_health import apply_v3_health_cooldown
 from src.strategy_profiles import (
     DEFAULT_STRATEGY_VERSION,
@@ -426,6 +426,7 @@ def run_pipeline(
     min_score = float(settings.get("signal_min_score", 60))
     followup_days = list(settings.get("followup_days", [1, 3, 5, 10]))
     latest_push_limit = _optional_positive_int(settings.get("latest_push_limit"))
+    v1_daily_push_limit = _optional_positive_int(settings.get("v1_daily_push_limit", 5))
     strong_threshold = float(settings.get("strong_return_threshold_pct", 15))
 
     signal_frames: dict[str, pd.DataFrame] = {}
@@ -445,6 +446,8 @@ def run_pipeline(
         )
         if not existing_signal_history.empty:
             signal_df = _merge_history_by_date(existing_signal_history, signal_df)
+        if strategy_version == "v1":
+            signal_df = apply_v1_daily_push_limit(signal_df, max_pushed=v1_daily_push_limit)
         signal_df = apply_v3_health_cooldown(
             signal_df,
             existing_followup_history_frames.get(strategy_version, pd.DataFrame()),

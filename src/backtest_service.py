@@ -43,6 +43,9 @@ BACKTEST_METRIC_SPECS = [
     BacktestMetricSpec("1d", "return_1d_pct", "settled_1d", "1日收益"),
     BacktestMetricSpec("3d", "return_3d_pct", "settled_3d", "3日收益"),
     BacktestMetricSpec("5d", "return_5d_pct", "settled_5d", "5日收益"),
+    BacktestMetricSpec("open_buy_1d", "open_buy_return_1d_pct", "settled_open_buy_1d", "次日开盘买入1日收益"),
+    BacktestMetricSpec("open_buy_3d", "open_buy_return_3d_pct", "settled_open_buy_3d", "次日开盘买入3日收益"),
+    BacktestMetricSpec("open_buy_5d", "open_buy_return_5d_pct", "settled_open_buy_5d", "次日开盘买入5日收益"),
     BacktestMetricSpec("10d", "return_10d_pct", "settled_10d", "10日收益"),
 ]
 

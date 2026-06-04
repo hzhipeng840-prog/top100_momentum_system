@@ -5,7 +5,7 @@ import unittest
 import pandas as pd
 
 from src.paths import followups_csv_for, signals_csv_for
-from src.signals import build_signals, score_signal
+from src.signals import CLOSE_STRENGTH_CONFIRM_LEVEL, apply_v1_daily_push_limit, build_signals, score_signal
 from src.strategy_profiles import (
     available_strategy_versions,
     strategy_capture_priority,
@@ -56,7 +56,9 @@ class StrategyVersioningTest(unittest.TestCase):
         v2 = score_signal(row, strategy_version="v2")
 
         self.assertEqual(v1["emotion_score"], v2["emotion_score"])
-        self.assertEqual(v1["push_level"], v2["push_level"])
+        self.assertEqual(v1["push_level"], CLOSE_STRENGTH_CONFIRM_LEVEL)
+        self.assertTrue(v1["is_pushed"])
+        self.assertFalse(v2["is_pushed"])
         self.assertIn("v2", str(v1["reasons"]))
         self.assertIn("v2", str(v2["reasons"]))
         self.assertEqual(strategy_thresholds("v1", min_score=60), (62.0, 77.0, 92.0))
@@ -130,6 +132,42 @@ class StrategyVersioningTest(unittest.TestCase):
         self.assertEqual(result["push_level"], "观察池")
         self.assertFalse(result["is_pushed"])
         self.assertIn("涨停封板不可买", str(result["suggested_action"]))
+
+    def test_v1_daily_push_limit_keeps_only_best_five_candidates(self) -> None:
+        rows = []
+        for index in range(6):
+            rows.append(
+                {
+                    "signal_date": "2026-05-11",
+                    "code": f"00000{index}",
+                    "rank": index + 1,
+                    "price_status": "ok",
+                    "emotion_score": 100 - index,
+                    "is_pushed": True,
+                    "push_level": "强推观察",
+                    "day_return_pct": 8.0,
+                    "close_position": 0.9,
+                    "volume_ratio_5": 1.0,
+                    "pre5_return_pct": 12.0,
+                    "dist_ma20_pct": 10.0,
+                    "consecutive_days": 2,
+                    "rank_change": 1,
+                    "market_score": 65.0,
+                    "market_5d_pct": 2.0,
+                    "reasons": "-",
+                    "risks": "-",
+                    "suggested_action": "-",
+                    "strategy_version": "v1",
+                }
+            )
+
+        result = apply_v1_daily_push_limit(pd.DataFrame(rows), max_pushed=5)
+
+        self.assertEqual(int(result["is_pushed"].astype(bool).sum()), 5)
+        demoted = result[~result["is_pushed"].astype(bool)].iloc[0]
+        self.assertFalse(bool(demoted["is_pushed"]))
+        self.assertEqual(demoted["push_level"], "观察池")
+        self.assertIn("v1每日精选未入前5", str(demoted["risks"]))
 
     def test_v3_uses_tail_rules_without_v4_overlay(self) -> None:
         row = {

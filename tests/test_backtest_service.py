@@ -30,6 +30,8 @@ class BacktestServiceTest(unittest.TestCase):
                     "settled_tail_next_day": True,
                     "return_3d_pct": 6.0,
                     "settled_3d": True,
+                    "open_buy_return_3d_pct": 3.5,
+                    "settled_open_buy_3d": True,
                 },
                 {
                     "signal_date": "2026-04-10",
@@ -42,6 +44,8 @@ class BacktestServiceTest(unittest.TestCase):
                     "settled_tail_next_day": True,
                     "return_3d_pct": None,
                     "settled_3d": False,
+                    "open_buy_return_3d_pct": None,
+                    "settled_open_buy_3d": False,
                 },
             ]
         )
@@ -68,6 +72,8 @@ class BacktestServiceTest(unittest.TestCase):
         self.assertEqual(int(row["valid_tail_next_close"]), 1)
         self.assertEqual(float(row["avg_tail_next_close"]), 4.0)
         self.assertEqual(float(row["win_rate_tail_next_close"]), 100.0)
+        self.assertEqual(float(row["avg_open_buy_3d"]), 3.5)
+        self.assertEqual(float(row["win_rate_open_buy_3d"]), 100.0)
 
     def test_backtest_summary_prefers_latest_signal_push_state(self) -> None:
         signal_df = pd.DataFrame(

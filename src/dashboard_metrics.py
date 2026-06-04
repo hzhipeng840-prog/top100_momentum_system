@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 
-PUSH_LEVEL_ORDER = ["强推观察", "重点观察", "普通观察", "观察池", "不推送"]
+PUSH_LEVEL_ORDER = ["强推观察", "收盘强势观察", "重点观察", "普通观察", "观察池", "不推送"]
 RETURN_METRIC_SPECS = {
     "至今收益": ("latest_return_pct", None),
     "次日开盘收益": ("tail_next_open_pct", "settled_tail_next_day"),
@@ -12,6 +12,9 @@ RETURN_METRIC_SPECS = {
     "1日收益": ("return_1d_pct", "settled_1d"),
     "3日收益": ("return_3d_pct", "settled_3d"),
     "5日收益": ("return_5d_pct", "settled_5d"),
+    "开盘买入1日收益": ("open_buy_return_1d_pct", "settled_open_buy_1d"),
+    "开盘买入3日收益": ("open_buy_return_3d_pct", "settled_open_buy_3d"),
+    "开盘买入5日收益": ("open_buy_return_5d_pct", "settled_open_buy_5d"),
     "10日收益": ("return_10d_pct", "settled_10d"),
 }
 
@@ -24,7 +27,7 @@ def _pushed_mask(df: pd.DataFrame) -> pd.Series:
     if "is_pushed" in df.columns:
         return _truthy_mask(df["is_pushed"])
     if "push_level" in df.columns:
-        return df["push_level"].fillna("").astype(str).isin(["强推观察", "重点观察"])
+        return df["push_level"].fillna("").astype(str).isin(["强推观察", "收盘强势观察", "重点观察"])
     return pd.Series(False, index=df.index)
 
 

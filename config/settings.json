@@ -5,6 +5,7 @@
   "strategy_versions": ["v1", "v2", "v3", "v4"],
   "visible_strategy_versions": ["v1", "v2", "v3"],
   "signal_min_score": 60,
+  "v1_daily_push_limit": 5,
   "latest_push_limit": null,
   "strong_return_threshold_pct": 15,
   "followup_days": [1, 3, 5, 10],

@@ -160,6 +160,9 @@ RULE_EVAL_METRIC_LABEL_TO_KEY = {
     "1日收益": "1d",
     "3日收益": "3d",
     "5日收益": "5d",
+    "开盘买入1日收益": "open_buy_1d",
+    "开盘买入3日收益": "open_buy_3d",
+    "开盘买入5日收益": "open_buy_5d",
     "10日收益": "10d",
 }
 CORE_BACKTEST_METRIC_KEYS = ["latest", "tail_next_open", "tail_next_close", "1d", "3d", "5d"]
@@ -786,6 +789,7 @@ def format_table_df(df: pd.DataFrame, columns: list[str], rename: dict[str, str]
 
 PUSH_LEVEL_COLORS = {
     "强推观察": "#D1495B",
+    "收盘强势观察": "#C2410C",
     "重点观察": "#EDAE49",
     "普通观察": "#2B7DE9",
     "观察池": "#7C3AED",
@@ -1159,7 +1163,7 @@ def build_push_level_compare_table(summary_by_version: dict[str, pd.DataFrame]) 
         if {left_up, right_up}.issubset(compare_df.columns):
             compare_df[f"{version}_vs_{baseline}_up_count_delta"] = pd.to_numeric(compare_df[right_up], errors="coerce") - pd.to_numeric(compare_df[left_up], errors="coerce")
 
-    push_level_order = {"强推观察": 0, "重点观察": 1, "普通观察": 2, "观察池": 3, "不推送": 4}
+    push_level_order = {"强推观察": 0, "收盘强势观察": 1, "重点观察": 2, "普通观察": 3, "观察池": 4, "不推送": 5}
     compare_df["_order"] = compare_df["push_level"].map(push_level_order).fillna(99)
     compare_df = compare_df.sort_values(["_order", "push_level"]).drop(columns=["_order"]).reset_index(drop=True)
     return compare_df
@@ -1200,10 +1204,11 @@ def build_rule_eval_compare_table(rule_eval_by_version: dict[str, pd.DataFrame],
     group_order = {"推送层级": 0, "人气排名段": 1, "上榜阶段": 2}
     group_value_order = {
         "强推观察": 0,
-        "重点观察": 1,
-        "普通观察": 2,
-        "观察池": 3,
-        "不推送": 4,
+        "收盘强势观察": 1,
+        "重点观察": 2,
+        "普通观察": 3,
+        "观察池": 4,
+        "不推送": 5,
         "Top3": 10,
         "Top10": 11,
         "Top20": 12,
@@ -1223,13 +1228,13 @@ def build_rule_eval_compare_table(rule_eval_by_version: dict[str, pd.DataFrame],
 def is_priority_focus(row: pd.Series, candidate_hit: str) -> str:
     if candidate_hit != "是":
         return "否"
-    return "是" if str(row.get("push_level", "")) in {"强推观察", "重点观察"} else "否"
+    return "是" if str(row.get("push_level", "")) in {"强推观察", "收盘强势观察", "重点观察"} else "否"
 
 
 def is_execution_priority_focus(row: pd.Series, candidate_hit: str) -> str:
     if candidate_hit != "是":
         return "否"
-    if str(row.get("push_level", "")) in {"强推观察", "重点观察"}:
+    if str(row.get("push_level", "")) in {"强推观察", "收盘强势观察", "重点观察"}:
         return "是"
     return "是" if str(row.get("fast_level", "")) == "下个交易日主盯" else "否"
 
@@ -1258,6 +1263,7 @@ def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, str
         "推送层级",
         "当日涨跌",
         "关键理由",
+        "操作备注",
         "候选池命中",
         "是否优先关注",
     ]
@@ -1287,6 +1293,7 @@ def build_execution_display_df(push_df: pd.DataFrame, fast_df: pd.DataFrame, str
     display_df["推送层级"] = working_df.get("push_level", "-")
     display_df["当日涨跌"] = working_df.get("day_return_pct", "-").apply(fmt_pct)
     display_df["关键理由"] = working_df.get("reasons", "-")
+    display_df["操作备注"] = working_df.get("suggested_action", "-")
     hit_rows = []
 
     priority_rows = []
@@ -1898,7 +1905,7 @@ if active_view == "今日决策":
                 priority_focus_count = int(execution_df["是否优先关注"].astype(str).eq("是").sum())
             if "推送层级" in execution_df.columns:
                 strong_focus_count = int(
-                    execution_df["推送层级"].astype(str).isin(["强推观察", "重点观察"]).sum()
+                    execution_df["推送层级"].astype(str).isin(["强推观察", "收盘强势观察", "重点观察"]).sum()
                 )
             default_execution_scope = "优先关注"
             if priority_focus_count == 0 and strong_focus_count > 0:
@@ -1908,20 +1915,20 @@ if active_view == "今日决策":
 
             execution_scope = st.radio(
                 "执行单范围",
-                options=["优先关注", "强推/重点", "全部"],
-                index=["优先关注", "强推/重点", "全部"].index(default_execution_scope),
+                options=["优先关注", "强推/重点/次日确认", "全部"],
+                index=["优先关注", "强推/重点/次日确认", "全部"].index(default_execution_scope.replace("强推/重点", "强推/重点/次日确认")),
                 horizontal=True,
                 key="latest_push_execution_scope",
             )
-            st.caption("优先关注 = 正式推送中的强推/重点，或正式推送为空时回退到候选池主盯；强推/重点 = 只按原始推送层级看。")
+            st.caption("优先关注 = 正式推送中的强推/重点/次日确认，或正式推送为空时回退到候选池主盯。")
             visible_execution_df = execution_df
             if execution_scope == "优先关注":
                 if "是否优先关注" in execution_df.columns:
                     visible_execution_df = execution_df[execution_df["是否优先关注"].eq("是")].copy()
                 else:
                     visible_execution_df = execution_df.iloc[0:0].copy()
-            elif execution_scope == "强推/重点":
-                visible_execution_df = execution_df[execution_df["推送层级"].astype(str).isin(["强推观察", "重点观察"])].copy()
+            elif execution_scope == "强推/重点/次日确认":
+                visible_execution_df = execution_df[execution_df["推送层级"].astype(str).isin(["强推观察", "收盘强势观察", "重点观察"])].copy()
 
             if visible_execution_df.empty:
                 st.info("当前范围暂无股票。")
@@ -1937,6 +1944,7 @@ if active_view == "今日决策":
                         "推送层级": st.column_config.TextColumn("推送层级", width="small"),
                         "当日涨跌": st.column_config.TextColumn("当日涨跌", width="small"),
                         "关键理由": st.column_config.TextColumn("关键理由", width="large"),
+                        "操作备注": st.column_config.TextColumn("操作备注", width="large"),
                         "候选池命中": st.column_config.TextColumn("候选池命中", width="small"),
                         "是否优先关注": st.column_config.TextColumn("是否优先关注", width="small"),
                     },
@@ -2030,6 +2038,7 @@ elif active_view == "样本追踪":
             "capture_type",
             "latest_return_pct",
             "return_3d_pct",
+            "open_buy_return_3d_pct",
         ]
         sample_rename = {
             "rank": "人气排名",
@@ -2041,6 +2050,7 @@ elif active_view == "样本追踪":
             "capture_type": "采集类型",
             "latest_return_pct": "至今涨跌%",
             "return_3d_pct": "3日收益%",
+            "open_buy_return_3d_pct": "开盘买入3日%",
         }
 
         display_table(
@@ -2096,6 +2106,8 @@ elif active_view == "强势复盘":
             "best_return_available",
             "return_3d_pct",
             "return_5d_pct",
+            "open_buy_return_3d_pct",
+            "open_buy_return_5d_pct",
             "max_gain_5d_pct",
             "reasons",
             "risks",
@@ -2115,6 +2127,8 @@ elif active_view == "强势复盘":
             "best_return_available": "阶段最好表现%",
             "return_3d_pct": "3日收益%",
             "return_5d_pct": "5日收益%",
+            "open_buy_return_3d_pct": "开盘买入3日%",
+            "open_buy_return_5d_pct": "开盘买入5日%",
             "max_gain_5d_pct": "5日最大上涨%",
             "reasons": "当时原因",
             "risks": "当时风险",
@@ -2629,6 +2643,12 @@ else:
             "avg_5d",
             "win_rate_5d",
             "strong_rate_5d",
+            "valid_open_buy_3d",
+            "avg_open_buy_3d",
+            "win_rate_open_buy_3d",
+            "valid_open_buy_5d",
+            "avg_open_buy_5d",
+            "win_rate_open_buy_5d",
         ]
         rule_eval_rename = {
             "group_name": "分组类型",
@@ -2643,6 +2663,12 @@ else:
             "avg_5d": "5日均值%",
             "win_rate_5d": "5日胜率%",
             "strong_rate_5d": "5日强势率%",
+            "valid_open_buy_3d": "开盘买入3日已结算",
+            "avg_open_buy_3d": "开盘买入3日均值%",
+            "win_rate_open_buy_3d": "开盘买入3日胜率%",
+            "valid_open_buy_5d": "开盘买入5日已结算",
+            "avg_open_buy_5d": "开盘买入5日均值%",
+            "win_rate_open_buy_5d": "开盘买入5日胜率%",
         }
     display_table(
         rule_eval_df,

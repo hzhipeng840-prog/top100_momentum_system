@@ -31,6 +31,8 @@ BASE_COLUMNS = [
     "tail_next_max_gain_pct",
     "tail_next_max_drawdown_pct",
     "settled_tail_next_day",
+    "open_buy_date",
+    "open_buy_price",
 ]
 
 
@@ -57,6 +59,10 @@ def _empty_result(days: list[int]) -> dict:
         result[f"max_gain_{day}d_pct"] = None
         result[f"max_drawdown_{day}d_pct"] = None
         result[f"settled_{day}d"] = False
+        result[f"open_buy_return_{day}d_pct"] = None
+        result[f"open_buy_max_gain_{day}d_pct"] = None
+        result[f"open_buy_max_drawdown_{day}d_pct"] = None
+        result[f"settled_open_buy_{day}d"] = False
     return result
 
 
@@ -86,6 +92,8 @@ def calculate_followup(row: pd.Series, days: list[int], price_cache: dict[str, p
         "tail_next_max_gain_pct": None,
         "tail_next_max_drawdown_pct": None,
         "settled_tail_next_day": False,
+        "open_buy_date": None,
+        "open_buy_price": None,
     }
     base.update(_empty_result(days))
 
@@ -112,6 +120,9 @@ def calculate_followup(row: pd.Series, days: list[int], price_cache: dict[str, p
     base["tail_next_max_gain_pct"] = pct_change(next_high, signal_close)
     base["tail_next_max_drawdown_pct"] = pct_change(next_low, signal_close)
     base["settled_tail_next_day"] = True
+    if next_open is not None and next_open != 0:
+        base["open_buy_date"] = pd.Timestamp(next_day.get("date")).strftime("%Y-%m-%d")
+        base["open_buy_price"] = next_open
 
     for day in days:
         if len(future_df) < day:
@@ -124,6 +135,11 @@ def calculate_followup(row: pd.Series, days: list[int], price_cache: dict[str, p
         base[f"max_gain_{day}d_pct"] = pct_change(float(max_high), signal_close) if pd.notna(max_high) else None
         base[f"max_drawdown_{day}d_pct"] = pct_change(float(min_low), signal_close) if pd.notna(min_low) else None
         base[f"settled_{day}d"] = True
+        if next_open is not None and next_open != 0:
+            base[f"open_buy_return_{day}d_pct"] = pct_change(end_close, next_open)
+            base[f"open_buy_max_gain_{day}d_pct"] = pct_change(float(max_high), next_open) if pd.notna(max_high) else None
+            base[f"open_buy_max_drawdown_{day}d_pct"] = pct_change(float(min_low), next_open) if pd.notna(min_low) else None
+            base[f"settled_open_buy_{day}d"] = True
     return base
 
 
