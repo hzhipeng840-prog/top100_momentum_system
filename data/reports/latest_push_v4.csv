@@ -1,2 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-06-11,6,300666,江丰电子,普通观察,90.2,8.36,17.15,弱势,-0.58,-4.2,2026-06-11,0,common_index_cache,8.94,21.35,0.792,1.66,20.48,3,24.0,post_close,2026-06-11 15:00:00,人气Top10；当日强涨；收盘承接较强；温和放量；近5日趋势升温；站上20日线且不过热；连续上榜确认；人气排名明显上升；弱市中个股相对抗跌；v4多头排列技术加分,v4乖离率过大；v4远离短中期均线,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
+﻿strategy_version
