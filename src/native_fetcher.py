@@ -17,6 +17,16 @@ DEFAULT_REMOTE_START_DATE = "20230101"
 REFRESH_LOOKBACK_DAYS = 40
 STOCK_CACHE_MAX_WORKERS = 6
 SEQUENTIAL_REFRESH_THRESHOLD = 8
+POPULARITY_FETCH_TIMEOUTS = (15, 25, 35)
+POPULARITY_RETRY_SLEEP_SECONDS = 2
+LIGHT_CAPTURE_TYPES = {
+    "intraday_0935",
+    "intraday_0950",
+    "intraday_1030",
+    "morning_capture",
+    "intraday_1430",
+    "tail_capture",
+}
 
 
 def _disable_proxy_env() -> None:
@@ -62,24 +72,41 @@ def fetch_popularity_top100(
         "Accept": "application/json, text/plain, */*",
     }
 
-    response = _build_direct_session().get(url, params=params, headers=headers, timeout=15)
-    response.raise_for_status()
-    data = response.json()
-    rows = []
-    for rank, item in enumerate(data.get("data", {}).get("stock_list", [])[:top_n], start=1):
-        rows.append(
-            {
-                "signal_date": signal_date,
-                "rank": rank,
-                "code": normalize_code(item.get("code")),
-                "name": str(item.get("name", "")).strip(),
-                "popularity_score": item.get("rate"),
-                "source": "10jqka",
-                "capture_type": capture_type,
-                "snapshot_time": snapshot_time,
-            }
-        )
-    return pd.DataFrame(rows)
+    last_error: Exception | None = None
+    for attempt, timeout_seconds in enumerate(POPULARITY_FETCH_TIMEOUTS, start=1):
+        try:
+            response = _build_direct_session().get(url, params=params, headers=headers, timeout=timeout_seconds)
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("Popularity API returned a non-object payload.")
+
+            rows = []
+            stock_list = data.get("data", {}).get("stock_list", [])
+            for rank, item in enumerate(stock_list[:top_n], start=1):
+                rows.append(
+                    {
+                        "signal_date": signal_date,
+                        "rank": rank,
+                        "code": normalize_code(item.get("code")),
+                        "name": str(item.get("name", "")).strip(),
+                        "popularity_score": item.get("rate"),
+                        "source": "10jqka",
+                        "capture_type": capture_type,
+                        "snapshot_time": snapshot_time,
+                    }
+                )
+            if not rows:
+                raise ValueError("Popularity API returned no stock rows.")
+            return pd.DataFrame(rows)
+        except (requests.RequestException, ValueError) as exc:
+            last_error = exc
+            if attempt < len(POPULARITY_FETCH_TIMEOUTS):
+                time.sleep(POPULARITY_RETRY_SLEEP_SECONDS)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Popularity API fetch failed without an exception.")
 
 
 def existing_popularity_snapshot(
@@ -106,6 +133,41 @@ def existing_popularity_snapshot(
     if matched["code"].nunique() < min_rows:
         return pd.DataFrame()
     return matched.sort_values("rank", na_position="last").reset_index(drop=True)
+
+
+def latest_popularity_snapshot(
+    capture_type: str | None = None,
+    min_rows: int = 100,
+) -> pd.DataFrame:
+    df = read_csv_safely(RAW_POPULARITY_CSV)
+    if df.empty:
+        return pd.DataFrame()
+    for column in ["signal_date", "capture_type", "snapshot_time", "code"]:
+        if column not in df.columns:
+            return pd.DataFrame()
+
+    working = df.copy()
+    working["signal_date"] = pd.to_datetime(working["signal_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    working["capture_type"] = working["capture_type"].fillna("").astype(str)
+    working["snapshot_time"] = working["snapshot_time"].fillna("").astype(str)
+    working["code"] = working["code"].apply(normalize_code)
+    working = working.dropna(subset=["signal_date"]).copy()
+    working = working[working["code"].ne("")].copy()
+    if capture_type:
+        working = working[working["capture_type"].eq(str(capture_type))].copy()
+    if working.empty:
+        return pd.DataFrame()
+
+    latest_date = working["signal_date"].max()
+    latest = working[working["signal_date"].eq(str(latest_date))].copy()
+    latest_snapshot_time = latest["snapshot_time"][latest["snapshot_time"].ne("")].max()
+    if latest_snapshot_time:
+        latest = latest[latest["snapshot_time"].eq(str(latest_snapshot_time))].copy()
+    if latest["code"].nunique() < min_rows:
+        return pd.DataFrame()
+    if "rank" in latest.columns:
+        latest["rank"] = pd.to_numeric(latest["rank"], errors="coerce")
+    return latest.sort_values("rank", na_position="last").reset_index(drop=True)
 
 
 def save_popularity_snapshot(snapshot_df: pd.DataFrame, path=RAW_POPULARITY_CSV) -> pd.DataFrame:
@@ -338,12 +400,34 @@ def run_native_fetch(
             "price_cache": price_stats,
         }
 
-    popularity_df = fetch_popularity_top100(
-        signal_date=signal_date,
-        capture_type=capture_type,
-        snapshot_time=snapshot_time,
-        top_n=top_n,
-    )
+    try:
+        popularity_df = fetch_popularity_top100(
+            signal_date=signal_date,
+            capture_type=capture_type,
+            snapshot_time=snapshot_time,
+            top_n=top_n,
+        )
+    except (requests.RequestException, ValueError) as exc:
+        if capture_type in LIGHT_CAPTURE_TYPES:
+            fallback_df = latest_popularity_snapshot(capture_type=capture_type, min_rows=top_n)
+            if not fallback_df.empty:
+                saved_df = read_csv_safely(RAW_POPULARITY_CSV)
+                return {
+                    "status": "stale_popularity_cache",
+                    "source": "local_cache",
+                    "reason": "Remote popularity fetch failed; continued with the latest local snapshot without writing a new snapshot.",
+                    "fetch_error_type": type(exc).__name__,
+                    "fetch_error": str(exc),
+                    "popularity_rows": len(fallback_df),
+                    "stored_rows": len(saved_df),
+                    "date_count": saved_df["signal_date"].nunique() if not saved_df.empty and "signal_date" in saved_df.columns else 0,
+                    "code_count": saved_df["code"].nunique() if not saved_df.empty and "code" in saved_df.columns else 0,
+                    "fallback_signal_date": fallback_df["signal_date"].max() if "signal_date" in fallback_df.columns else "",
+                    "fallback_snapshot_time": fallback_df["snapshot_time"].max() if "snapshot_time" in fallback_df.columns else "",
+                    "popularity_path": str(RAW_POPULARITY_CSV),
+                    "price_cache": {"requested": 0, "cache": 0, "remote": 0, "stale_cache": 0, "missing": 0},
+                }
+        raise
     saved_df = save_popularity_snapshot(popularity_df)
     price_stats = {"requested": 0, "cache": 0, "remote": 0, "stale_cache": 0, "missing": 0}
     if refresh_prices and not popularity_df.empty:

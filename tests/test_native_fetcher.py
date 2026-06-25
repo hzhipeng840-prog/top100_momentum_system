@@ -48,5 +48,77 @@ class NativeFetcherWarmCacheTest(unittest.TestCase):
         self.assertTrue(all(call.kwargs["force_refresh"] for call in mock_fetch_stock_price.call_args_list))
 
 
+class NativeFetcherPopularityFallbackTest(unittest.TestCase):
+    @patch("src.native_fetcher.save_popularity_snapshot")
+    @patch("src.native_fetcher.fetch_popularity_top100")
+    @patch("src.native_fetcher.read_csv_safely")
+    def test_light_capture_uses_latest_snapshot_when_popularity_fetch_times_out(
+        self,
+        mock_read_csv_safely,
+        mock_fetch_popularity_top100,
+        mock_save_popularity_snapshot,
+    ) -> None:
+        cached_snapshot = pd.DataFrame(
+            [
+                {
+                    "signal_date": "2026-06-24",
+                    "rank": 1,
+                    "code": "000001",
+                    "name": "A",
+                    "popularity_score": 99,
+                    "source": "10jqka",
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-06-24 09:50:00",
+                },
+                {
+                    "signal_date": "2026-06-24",
+                    "rank": 2,
+                    "code": "000002",
+                    "name": "B",
+                    "popularity_score": 98,
+                    "source": "10jqka",
+                    "capture_type": "intraday_0950",
+                    "snapshot_time": "2026-06-24 09:50:00",
+                },
+            ]
+        )
+        mock_read_csv_safely.return_value = cached_snapshot
+        mock_fetch_popularity_top100.side_effect = native_fetcher.requests.exceptions.ReadTimeout("10jqka timeout")
+
+        result = native_fetcher.run_native_fetch(
+            signal_date="2026-06-25",
+            capture_type="intraday_0950",
+            snapshot_time="2026-06-25 09:50:00",
+            top_n=2,
+            refresh_prices=False,
+        )
+
+        self.assertEqual(result["status"], "stale_popularity_cache")
+        self.assertEqual(result["source"], "local_cache")
+        self.assertEqual(result["fallback_signal_date"], "2026-06-24")
+        self.assertEqual(result["fallback_snapshot_time"], "2026-06-24 09:50:00")
+        self.assertEqual(result["popularity_rows"], 2)
+        self.assertEqual(result["fetch_error_type"], "ReadTimeout")
+        mock_save_popularity_snapshot.assert_not_called()
+
+    @patch("src.native_fetcher.fetch_popularity_top100")
+    @patch("src.native_fetcher.read_csv_safely", return_value=pd.DataFrame())
+    def test_post_close_still_fails_when_popularity_fetch_times_out(
+        self,
+        _mock_read_csv_safely,
+        mock_fetch_popularity_top100,
+    ) -> None:
+        mock_fetch_popularity_top100.side_effect = native_fetcher.requests.exceptions.ReadTimeout("10jqka timeout")
+
+        with self.assertRaises(native_fetcher.requests.exceptions.ReadTimeout):
+            native_fetcher.run_native_fetch(
+                signal_date="2026-06-25",
+                capture_type="post_close",
+                snapshot_time="2026-06-25 15:00:00",
+                top_n=2,
+                refresh_prices=False,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
