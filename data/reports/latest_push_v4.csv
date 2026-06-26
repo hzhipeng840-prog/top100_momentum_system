@@ -1,2 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-06-26,43,002384,东山精密,普通观察,87.0,7.26,7.35,弱势,-3.13,-1.51,2026-06-26,0,common_index_cache,10.39,8.86,0.989,1.0,18.04,37,-10.0,post_close,2026-06-26 15:00:00,人气Top50；当日强涨；收在日内高位；温和放量；近5日趋势升温；站上20日线且不过热；持续霸榜；弱市中个股相对抗跌；v4多头排列技术加分；v4放量突破但不过热；v4沿短均线抬升,热度可能进入后段；弱市里的长连榜样本优先降权；v4短线偏离MA5过多；v4远离短中期均线,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
+﻿strategy_version
