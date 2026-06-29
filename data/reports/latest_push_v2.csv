@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-06-29,13,002354,天娱数科,普通观察,65.0,6.57,10.71,震荡,0.67,-2.87,2026-06-29,0,common_index_cache,5.9,13.58,0.69,0.97,22.12,6,9.0,intraday_0950,2026-06-29 09:50:00,人气Top20；当日上涨；温和放量；近5日趋势升温；站上20日线且不过热；持续霸榜；震荡市里保持相对强势,热度可能进入后段,保留在样本池，继续看次日人气和承接。,v2
