@@ -1,4 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-06-26,2,000725,京东方A,普通观察,64.0,5.59,21.22,弱势,-3.13,-1.51,2026-06-26,0,common_index_cache,8.72,22.73,0.951,0.35,27.02,26,0.0,intraday_0950,2026-06-26 09:50:00,人气Top3；当日上涨；收在日内高位；近5日趋势升温；站上20日线且不过热；持续霸榜；弱市中个股相对抗跌,量能不足；热度可能进入后段；弱市里的长连榜样本优先降权；Top3高热度拥挤，次日兑现风险,保留在样本池，继续看次日人气和承接。,v2
-2026-06-26,6,000100,TCL科技,普通观察,64.0,2.43,9.4,弱势,-3.13,-1.51,2026-06-26,0,common_index_cache,5.56,10.91,0.75,0.54,15.18,3,4.0,intraday_0950,2026-06-26 09:50:00,人气Top10；收盘承接较强；近5日趋势升温；站上20日线且不过热；连续上榜确认；弱市中个股相对抗跌,-,保留在样本池，继续看次日人气和承接。,v2
-2026-06-26,3,600667,太极实业,普通观察,61.0,8.73,31.55,弱势,-3.13,-1.51,2026-06-26,0,common_index_cache,11.86,33.06,0.805,0.84,51.31,18,0.0,intraday_0950,2026-06-26 09:50:00,人气Top3；当日强涨；收盘承接较强；温和放量；近5日强势延续；持续霸榜；弱市中个股相对抗跌,短线涨幅偏高；远离20日线过多；热度可能进入后段；弱市里的长连榜样本优先降权；Top3高热度拥挤，次日兑现风险,保留在样本池，继续看次日人气和承接。,v2
+﻿strategy_version
