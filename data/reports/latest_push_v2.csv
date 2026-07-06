@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-07-06,3,000301,东方盛虹,重点观察,77.0,7.49,19.38,震荡,-0.87,-2.78,2026-07-06,0,common_index_cache,8.36,22.16,0.672,1.84,12.74,1,,intraday_0950,2026-07-06 09:50:00,人气Top3；当日强涨；放量仍可控；近5日趋势升温；站上20日线且不过热；首次上榜即强势；震荡市里保持相对强势,Top3高热度拥挤，次日兑现风险,只做观察或轻仓试错，等待回落承接和量能不失控。,v2
