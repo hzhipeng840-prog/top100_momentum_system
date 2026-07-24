@@ -1,2 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-07-24,13,600722,金牛化工,普通观察,60.0,2.83,31.48,震荡,0.32,-1.73,2026-07-23,1,common_index_cache,2.51,33.21,0.551,0.91,21.34,2,25.0,intraday_0950,2026-07-24 09:50:00,人气Top20；温和放量；近5日强势延续；站上20日线且不过热；连续上榜确认；人气排名明显上升；震荡市里保持相对强势；v2连榜升温修正,短线涨幅偏高；v2回避前段过热样本,保留在样本池，继续看次日人气和承接。,v2
+﻿strategy_version

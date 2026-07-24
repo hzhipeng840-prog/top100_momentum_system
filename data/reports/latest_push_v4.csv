@@ -1,3 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-07-23,7,600396,华电辽能,普通观察,92.95,9.01,5.39,震荡,0.32,-1.73,2026-07-23,0,common_index_cache,8.69,7.12,0.957,0.99,-3.91,6,1.0,intraday_1430,2026-07-23 14:30:00,人气Top10；当日强涨；收在日内高位；温和放量；近5日趋势升温；持续霸榜；震荡市里保持相对强势；震荡市里承接未失控；v4龙虎榜活跃,热度可能进入后段；v4事件谨慎扣分（异常波动）,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
-2026-07-23,96,600900,长江电力,普通观察,89.3,3.07,5.1,震荡,0.32,-1.73,2026-07-23,0,common_index_cache,2.75,6.83,0.894,0.94,5.81,1,-8.0,intraday_1430,2026-07-23 14:30:00,当日上涨；收盘承接较强；温和放量；近5日趋势升温；站上20日线且不过热；震荡市里保持相对强势；震荡市里承接未失控；v4多头排列技术加分；v4缩量回踩MA5；v4靠近MA10承接；v4沿短均线抬升,后段人气股在偏弱环境里更谨慎,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
+﻿strategy_version
