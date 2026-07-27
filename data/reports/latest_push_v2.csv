@@ -1,1 +1,3 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-07-27,15,601678,滨化股份,重点观察,79.0,3.52,32.75,弱势,-2.17,1.08,2026-07-24,3,common_index_cache,5.69,31.67,0.977,1.18,12.48,2,-6.0,intraday_0950,2026-07-27 09:50:00,人气Top20；当日上涨；收在日内高位；温和放量；近5日强势延续；站上20日线且不过热；连续上榜确认；弱市中个股相对抗跌；v2连榜升温修正,短线涨幅偏高；v2回避前段过热样本,只做观察或轻仓试错，等待回落承接和量能不失控。,v2
+2026-07-27,8,601606,长城军工,普通观察,65.0,9.17,33.86,弱势,-2.17,1.08,2026-07-24,3,common_index_cache,11.34,32.78,0.91,5.17,27.01,2,22.0,intraday_0950,2026-07-27 09:50:00,人气Top10；当日强涨；收在日内高位；近5日强势延续；站上20日线且不过热；连续上榜确认；人气排名明显上升；弱市中个股相对抗跌,放量过猛；短线涨幅偏高；v2回避前段过热样本,保留在样本池，继续看次日人气和承接。,v2
