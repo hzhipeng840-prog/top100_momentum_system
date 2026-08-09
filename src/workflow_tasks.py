@@ -197,6 +197,8 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
                         f"{item.get('repaired_count', 0)}/{item.get('requested_count', 0)} repaired, "
                         f"{item.get('remaining_count', 0)} remaining"
                     )
+                    if item.get("stopped_early"):
+                        lines.append(f"- Price Repair Stop `{item.get('target_date', '')}`: {item.get('stop_reason', '')}")
             repair_freshness = (
                 nightly_repair_payload.get("freshness", {})
                 if isinstance(nightly_repair_payload.get("freshness"), dict)
@@ -237,6 +239,8 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
                         f"{item.get('repaired_count', 0)}/{item.get('requested_count', 0)} repaired, "
                         f"{item.get('remaining_count', 0)} remaining"
                     )
+                    if item.get("stopped_early"):
+                        lines.append(f"- Price Repair Stop `{item.get('target_date', '')}`: {item.get('stop_reason', '')}")
             repair_freshness = repair_payload.get("freshness", {}) if isinstance(repair_payload.get("freshness"), dict) else {}
             if repair_freshness:
                 lines.append(f"- Final Freshness: `{repair_freshness.get('status', '')}` {repair_freshness.get('summary', '')}")

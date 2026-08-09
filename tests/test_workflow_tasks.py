@@ -163,6 +163,8 @@ class WorkflowTasksTest(unittest.TestCase):
                                     "requested_count": 100,
                                     "repaired_count": 9,
                                     "remaining_count": 91,
+                                    "stopped_early": True,
+                                    "stop_reason": "first_attempt_low_progress:9/100 repaired below 10%; price source may not have updated the target date",
                                 }
                             ],
                             "freshness": {"status": "stale", "summary": "still stale"},
@@ -175,6 +177,7 @@ class WorkflowTasksTest(unittest.TestCase):
             self.assertIn("## Nightly Settlement Repair", text)
             self.assertIn("Status: failed", text)
             self.assertIn("Price Repair `2026-08-07`: 9/100 repaired, 91 remaining", text)
+            self.assertIn("Price Repair Stop `2026-08-07`: first_attempt_low_progress", text)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

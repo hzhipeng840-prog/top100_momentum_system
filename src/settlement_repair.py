@@ -17,8 +17,9 @@ from src.utils import normalize_code, read_csv_safely
 
 
 DEFAULT_REPAIR_MAX_ATTEMPTS = 3
-DEFAULT_REPAIR_MAX_WORKERS = 1
+DEFAULT_REPAIR_MAX_WORKERS = 4
 DEFAULT_REPAIR_SLEEP_SECONDS = 3.0
+DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO = 0.10
 
 
 def _normalize_date_text(value: object) -> str:
@@ -67,22 +68,37 @@ def repair_price_caches_for_target(
     max_attempts: int = DEFAULT_REPAIR_MAX_ATTEMPTS,
     max_workers: int = DEFAULT_REPAIR_MAX_WORKERS,
     retry_sleep_seconds: float = DEFAULT_REPAIR_SLEEP_SECONDS,
+    min_first_attempt_progress_ratio: float = DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO,
 ) -> dict[str, object]:
     target_date_text = _normalize_date_text(target_date)
     normalized_codes = {normalize_code(code) for code in codes if normalize_code(code)}
     attempt_count = max(1, int(max_attempts))
+    worker_count = max(1, int(max_workers))
+    first_attempt_progress_floor = max(0.0, float(min_first_attempt_progress_ratio))
     attempts: list[dict[str, object]] = []
     remaining = _missing_price_codes(normalized_codes, target_date_text)
+    initial_missing_count = len(remaining)
+    stopped_early = False
+    stop_reason = ""
 
     for attempt in range(1, attempt_count + 1):
         if not remaining:
             break
+        remaining_before = len(remaining)
         stats = warm_stock_price_cache(
             remaining,
             force_refresh=True,
-            max_workers=max(1, int(max_workers)),
+            max_workers=worker_count,
         )
         remaining = _missing_price_codes(normalized_codes, target_date_text)
+        remaining_count = len(remaining)
+        attempt_repaired_count = max(0, remaining_before - remaining_count)
+        cumulative_repaired_count = max(0, initial_missing_count - remaining_count)
+        cumulative_progress_ratio = (
+            cumulative_repaired_count / initial_missing_count
+            if initial_missing_count > 0
+            else 1.0
+        )
         attempts.append(
             {
                 "attempt": attempt,
@@ -91,9 +107,26 @@ def repair_price_caches_for_target(
                 "cache": stats.get("cache", 0),
                 "stale_cache": stats.get("stale_cache", 0),
                 "missing": stats.get("missing", 0),
-                "remaining": len(remaining),
+                "remaining_before": remaining_before,
+                "repaired": attempt_repaired_count,
+                "remaining": remaining_count,
+                "cumulative_repaired": cumulative_repaired_count,
+                "cumulative_progress_ratio": cumulative_progress_ratio,
             }
         )
+        if (
+            attempt == 1
+            and remaining
+            and attempt < attempt_count
+            and cumulative_progress_ratio < first_attempt_progress_floor
+        ):
+            stopped_early = True
+            stop_reason = (
+                "first_attempt_low_progress:"
+                f"{cumulative_repaired_count}/{initial_missing_count} repaired below "
+                f"{first_attempt_progress_floor:.0%}; price source may not have updated the target date"
+            )
+            break
         if remaining and attempt < attempt_count and retry_sleep_seconds > 0:
             time.sleep(float(retry_sleep_seconds))
 
@@ -102,10 +135,16 @@ def repair_price_caches_for_target(
         "target_date": target_date_text,
         "requested_codes": sorted(normalized_codes),
         "requested_count": len(normalized_codes),
+        "initial_missing_count": initial_missing_count,
+        "max_attempts": attempt_count,
+        "max_workers": worker_count,
+        "min_first_attempt_progress_ratio": first_attempt_progress_floor,
         "repaired_codes": repaired,
         "repaired_count": len(repaired),
         "remaining_codes": remaining,
         "remaining_count": len(remaining),
+        "stopped_early": stopped_early,
+        "stop_reason": stop_reason,
         "attempts": attempts,
         "success": not remaining,
     }
@@ -152,6 +191,7 @@ def run_settlement_repair(
     max_attempts: int = DEFAULT_REPAIR_MAX_ATTEMPTS,
     max_workers: int = DEFAULT_REPAIR_MAX_WORKERS,
     retry_sleep_seconds: float = DEFAULT_REPAIR_SLEEP_SECONDS,
+    min_first_attempt_progress_ratio: float = DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO,
 ) -> dict[str, object]:
     settings = load_settings()
     strategy_versions = available_strategy_versions(settings)
@@ -185,6 +225,7 @@ def run_settlement_repair(
                 max_attempts=max_attempts,
                 max_workers=max_workers,
                 retry_sleep_seconds=retry_sleep_seconds,
+                min_first_attempt_progress_ratio=min_first_attempt_progress_ratio,
             )
         )
 
