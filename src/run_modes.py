@@ -93,6 +93,7 @@ def run_named_mode(
     if config.mode == "settlement_repair":
         return run_settlement_repair()
     if config.mode == "nightly_reports":
+        repair_result = run_settlement_repair()
         result = run_pipeline(
             native_fetch=False,
             capture_type=config.capture_type,
@@ -101,6 +102,10 @@ def run_named_mode(
             light_reports=False,
         )
         result["mode"] = config.mode
+        result["nightly_settlement_repair"] = repair_result
+        freshness = result.get("freshness", {}) if isinstance(result.get("freshness"), dict) else {}
+        freshness_ok = bool(freshness.get("is_fresh")) if "is_fresh" in freshness else bool(repair_result.get("success"))
+        result["success"] = bool(repair_result.get("success")) and freshness_ok
         return result
     if config.mode == "backtest":
         settings = load_settings()

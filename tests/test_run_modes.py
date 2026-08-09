@@ -35,11 +35,18 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         mock_run_settlement_repair.assert_called_once_with()
 
-    @patch("src.run_modes.run_pipeline", return_value={"reports": {"report_mode": "full"}})
-    def test_run_named_mode_nightly_reports_runs_full_local_reports(self, mock_run_pipeline) -> None:
-        result = run_named_mode("nightly_reports")
+    def test_run_named_mode_nightly_reports_repairs_then_runs_full_local_reports(self) -> None:
+        with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": True}) as mock_repair:
+            with patch(
+                "src.run_modes.run_pipeline",
+                return_value={"reports": {"report_mode": "full"}, "freshness": {"is_fresh": True}},
+            ) as mock_run_pipeline:
+                result = run_named_mode("nightly_reports")
 
         self.assertEqual(result["mode"], "nightly_reports")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["nightly_settlement_repair"]["mode"], "settlement_repair")
+        mock_repair.assert_called_once_with()
         mock_run_pipeline.assert_called_once_with(
             native_fetch=False,
             capture_type="post_close",
@@ -47,6 +54,16 @@ class RunModesTest(unittest.TestCase):
             force_refresh_prices=False,
             light_reports=False,
         )
+
+    def test_run_named_mode_nightly_reports_fails_when_repair_stays_stale(self) -> None:
+        with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": False}):
+            with patch(
+                "src.run_modes.run_pipeline",
+                return_value={"reports": {"report_mode": "full"}, "freshness": {"is_fresh": False}},
+            ):
+                result = run_named_mode("nightly_reports")
+
+        self.assertFalse(result["success"])
 
     @patch("src.run_modes.run_backtest_service")
     @patch("src.run_modes.available_strategy_versions", return_value=["v1", "v2"])

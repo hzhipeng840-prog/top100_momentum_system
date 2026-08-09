@@ -130,6 +130,54 @@ class WorkflowTasksTest(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
+    def test_write_workflow_summary_includes_nightly_repair_status(self) -> None:
+        tmpdir = self._workspace_tempdir()
+        try:
+            summary_path = tmpdir / "summary.md"
+            write_workflow_summary(
+                summary_path,
+                {
+                    "success": False,
+                    "mode": "nightly_reports",
+                    "started_at": "2026-08-07T19:10:00+08:00",
+                    "finished_at": "2026-08-07T19:10:05+08:00",
+                    "returncode": 0,
+                    "command_display": "python daily_job.py --mode nightly_reports",
+                    "log_path": "workflow_artifacts/logs/nightly_reports.log",
+                    "payload": {
+                        "strategy_versions": ["v1"],
+                        "default_strategy_version": "v1",
+                        "data": {"status": "ok"},
+                        "features": {"rows": 1},
+                        "signals": {"rows": 1, "pushed_rows": 1},
+                        "followups": {"rows": 1},
+                        "freshness": {"status": "stale", "is_fresh": False, "summary": "stale"},
+                        "nightly_settlement_repair": {
+                            "success": False,
+                            "target_dates": ["2026-08-07"],
+                            "repair_code_count": 100,
+                            "remaining_stale_codes_by_version": {"v1": ["000001"]},
+                            "price_repair": [
+                                {
+                                    "target_date": "2026-08-07",
+                                    "requested_count": 100,
+                                    "repaired_count": 9,
+                                    "remaining_count": 91,
+                                }
+                            ],
+                            "freshness": {"status": "stale", "summary": "still stale"},
+                        },
+                    },
+                },
+            )
+
+            text = summary_path.read_text(encoding="utf-8")
+            self.assertIn("## Nightly Settlement Repair", text)
+            self.assertIn("Status: failed", text)
+            self.assertIn("Price Repair `2026-08-07`: 9/100 repaired, 91 remaining", text)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     @patch("src.workflow_tasks.subprocess.run")
     def test_run_workflow_mode_writes_log_and_summary(self, mock_run) -> None:
         mock_run.return_value.returncode = 0
@@ -151,6 +199,20 @@ class WorkflowTasksTest(unittest.TestCase):
             self.assertEqual(result["snapshot_time"], "2026-05-06 14:30:00")
             self.assertTrue(summary_path.exists())
             self.assertEqual(len(list(log_dir.glob("tail_capture_*.log"))), 1)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    @patch("src.workflow_tasks.subprocess.run")
+    def test_run_workflow_mode_honors_nightly_reports_payload_success(self, mock_run) -> None:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = '{"mode":"nightly_reports","success":false,"freshness":{"status":"stale","is_fresh":false}}'
+        mock_run.return_value.stderr = ""
+
+        tmpdir = self._workspace_tempdir()
+        try:
+            result = run_workflow_mode("nightly_reports", log_dir=tmpdir / "logs")
+
+            self.assertFalse(result["success"])
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

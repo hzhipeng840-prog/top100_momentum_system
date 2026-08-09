@@ -170,6 +170,40 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
                     f"- `{version}`: summary `{stats.get('summary_rows', 0)}`, "
                     f"rule_eval `{stats.get('rule_evaluation_rows', 0)}`, generated `{stats.get('generated_at', '-')}`"
                 )
+        nightly_repair_payload = (
+            payload.get("nightly_settlement_repair", {})
+            if isinstance(payload.get("nightly_settlement_repair"), dict)
+            else {}
+        )
+        if nightly_repair_payload:
+            lines.extend(
+                [
+                    "",
+                    "## Nightly Settlement Repair",
+                    "",
+                    f"- Status: {'success' if nightly_repair_payload.get('success') else 'failed'}",
+                    f"- Target Dates: `{', '.join(nightly_repair_payload.get('target_dates', []))}`",
+                    f"- Repair Codes: `{nightly_repair_payload.get('repair_code_count', 0)}`",
+                    f"- Remaining Stale Versions: `{', '.join(sorted((nightly_repair_payload.get('remaining_stale_codes_by_version') or {}).keys()))}`",
+                ]
+            )
+            price_repair = nightly_repair_payload.get("price_repair", [])
+            if isinstance(price_repair, list):
+                for item in price_repair:
+                    if not isinstance(item, dict):
+                        continue
+                    lines.append(
+                        f"- Price Repair `{item.get('target_date', '')}`: "
+                        f"{item.get('repaired_count', 0)}/{item.get('requested_count', 0)} repaired, "
+                        f"{item.get('remaining_count', 0)} remaining"
+                    )
+            repair_freshness = (
+                nightly_repair_payload.get("freshness", {})
+                if isinstance(nightly_repair_payload.get("freshness"), dict)
+                else {}
+            )
+            if repair_freshness:
+                lines.append(f"- Final Freshness: `{repair_freshness.get('status', '')}` {repair_freshness.get('summary', '')}")
 
     repair_result = result.get("repair") if isinstance(result.get("repair"), dict) else None
     if repair_result:
@@ -284,7 +318,7 @@ def run_workflow_mode(
     payload = _parse_pipeline_payload(completed.stdout)
     if payload is not None:
         result["payload"] = payload
-        if normalized == "settlement_repair" and "success" in payload:
+        if normalized in {"settlement_repair", "nightly_reports"} and "success" in payload:
             result["success"] = completed.returncode == 0 and bool(payload.get("success"))
 
     data_payload = payload.get("data", {}) if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else {}
