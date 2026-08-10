@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-08-10,2,603259,药明康德,普通观察,74.6,3.98,15.72,强势,1.24,4.65,2026-08-07,3,common_index_cache,2.74,11.07,0.645,1.72,18.13,6,8.0,intraday_1430,2026-08-10 14:30:00,人气Top3；当日上涨；温和放量；近5日趋势升温；站上20日线且不过热；持续霸榜；市场强势且个股相对强势,热度可能进入后段；v3尾盘版回避高位长连榜,尾盘版：保留在候选池，尽量只看尾盘收回高位或缩量稳住的票。,v3
