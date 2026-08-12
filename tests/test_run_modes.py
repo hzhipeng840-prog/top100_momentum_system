@@ -35,11 +35,33 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         mock_run_settlement_repair.assert_called_once_with()
 
-    def test_run_named_mode_nightly_reports_repairs_then_runs_full_local_reports(self) -> None:
+    def test_run_named_mode_nightly_reports_runs_full_local_reports_when_initial_fresh(self) -> None:
+        with patch("src.run_modes.run_settlement_repair") as mock_repair:
+            with patch(
+                "src.run_modes.run_pipeline",
+                side_effect=[
+                    {"reports": {"report_mode": "light"}, "freshness": {"is_fresh": True}},
+                    {"reports": {"report_mode": "full"}, "freshness": {"is_fresh": True}},
+                ],
+            ) as mock_run_pipeline:
+                result = run_named_mode("nightly_reports")
+
+        self.assertEqual(result["mode"], "nightly_reports")
+        self.assertTrue(result["success"])
+        self.assertTrue(result["nightly_settlement_repair"]["skipped"])
+        mock_repair.assert_not_called()
+        self.assertEqual(mock_run_pipeline.call_count, 2)
+        self.assertTrue(mock_run_pipeline.call_args_list[0].kwargs["light_reports"])
+        self.assertFalse(mock_run_pipeline.call_args_list[1].kwargs["light_reports"])
+
+    def test_run_named_mode_nightly_reports_materializes_then_repairs_stale_settlement(self) -> None:
         with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": True}) as mock_repair:
             with patch(
                 "src.run_modes.run_pipeline",
-                return_value={"reports": {"report_mode": "full"}, "freshness": {"is_fresh": True}},
+                side_effect=[
+                    {"reports": {"report_mode": "light"}, "freshness": {"is_fresh": False}},
+                    {"reports": {"report_mode": "full"}, "freshness": {"is_fresh": True}},
+                ],
             ) as mock_run_pipeline:
                 result = run_named_mode("nightly_reports")
 
@@ -47,7 +69,15 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["nightly_settlement_repair"]["mode"], "settlement_repair")
         mock_repair.assert_called_once_with()
-        mock_run_pipeline.assert_called_once_with(
+        self.assertEqual(mock_run_pipeline.call_count, 2)
+        mock_run_pipeline.assert_any_call(
+            native_fetch=False,
+            capture_type="post_close",
+            snapshot_time=None,
+            force_refresh_prices=False,
+            light_reports=True,
+        )
+        mock_run_pipeline.assert_any_call(
             native_fetch=False,
             capture_type="post_close",
             snapshot_time=None,
@@ -59,11 +89,13 @@ class RunModesTest(unittest.TestCase):
         with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": False}):
             with patch(
                 "src.run_modes.run_pipeline",
-                return_value={"reports": {"report_mode": "full"}, "freshness": {"is_fresh": False}},
-            ):
+                return_value={"reports": {"report_mode": "light"}, "freshness": {"is_fresh": False}},
+            ) as mock_run_pipeline:
                 result = run_named_mode("nightly_reports")
 
         self.assertFalse(result["success"])
+        self.assertEqual(mock_run_pipeline.call_count, 1)
+        self.assertTrue(mock_run_pipeline.call_args.kwargs["light_reports"])
 
     @patch("src.run_modes.run_backtest_service")
     @patch("src.run_modes.available_strategy_versions", return_value=["v1", "v2"])

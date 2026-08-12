@@ -93,7 +93,28 @@ def run_named_mode(
     if config.mode == "settlement_repair":
         return run_settlement_repair()
     if config.mode == "nightly_reports":
-        repair_result = run_settlement_repair()
+        initial_result = run_pipeline(
+            native_fetch=False,
+            capture_type=config.capture_type,
+            snapshot_time=config.snapshot_time,
+            force_refresh_prices=False,
+            light_reports=True,
+        )
+        initial_freshness = initial_result.get("freshness", {}) if isinstance(initial_result.get("freshness"), dict) else {}
+        initial_freshness_ok = bool(initial_freshness.get("is_fresh")) if "is_fresh" in initial_freshness else False
+        repair_result: dict[str, object] = {
+            "mode": "settlement_repair",
+            "success": True,
+            "skipped": True,
+            "reason": "initial_freshness_ok",
+        }
+        if not initial_freshness_ok:
+            repair_result = run_settlement_repair()
+        if not initial_freshness_ok and not bool(repair_result.get("success")):
+            initial_result["mode"] = config.mode
+            initial_result["nightly_settlement_repair"] = repair_result
+            initial_result["success"] = False
+            return initial_result
         result = run_pipeline(
             native_fetch=False,
             capture_type=config.capture_type,
@@ -102,10 +123,11 @@ def run_named_mode(
             light_reports=False,
         )
         result["mode"] = config.mode
+        result["nightly_initial_freshness"] = initial_freshness
         result["nightly_settlement_repair"] = repair_result
         freshness = result.get("freshness", {}) if isinstance(result.get("freshness"), dict) else {}
-        freshness_ok = bool(freshness.get("is_fresh")) if "is_fresh" in freshness else bool(repair_result.get("success"))
-        result["success"] = bool(repair_result.get("success")) and freshness_ok
+        freshness_ok = bool(freshness.get("is_fresh")) if "is_fresh" in freshness else False
+        result["success"] = freshness_ok and (initial_freshness_ok or bool(repair_result.get("success")))
         return result
     if config.mode == "backtest":
         settings = load_settings()
