@@ -152,6 +152,10 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
                 f"- Followup Rows: `{followups_payload.get('rows', 0)}`",
             ]
         )
+        if payload.get("deferred"):
+            lines.append(f"- Deferred: `{payload.get('deferred_reason', '')}`")
+            if payload.get("deferred_summary"):
+                lines.append(f"- Deferred Summary: {payload.get('deferred_summary')}")
         if freshness_payload:
             lines.extend(
                 [

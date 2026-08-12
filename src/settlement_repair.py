@@ -22,6 +22,13 @@ DEFAULT_REPAIR_SLEEP_SECONDS = 3.0
 DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO = 0.10
 
 
+def _safe_int(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _normalize_date_text(value: object) -> str:
     parsed = pd.to_datetime(pd.Series([value]), errors="coerce").iloc[0]
     if pd.isna(parsed):
@@ -150,6 +157,25 @@ def repair_price_caches_for_target(
     }
 
 
+def _should_rebuild_after_price_repair(price_repair_results: list[dict[str, object]]) -> bool:
+    if not price_repair_results:
+        return False
+    if all(result.get("success") for result in price_repair_results):
+        return True
+
+    for result in price_repair_results:
+        if result.get("stopped_early"):
+            continue
+        repaired_count = _safe_int(result.get("repaired_count"))
+        requested_count = _safe_int(result.get("requested_count"))
+        remaining_count = _safe_int(result.get("remaining_count"))
+        if repaired_count > 0:
+            return True
+        if requested_count > 0 and remaining_count < requested_count:
+            return True
+    return False
+
+
 def _repair_targets(
     strategy_versions: list[str],
     market_regime_df: pd.DataFrame,
@@ -231,7 +257,7 @@ def run_settlement_repair(
 
     report_results: dict[str, dict[str, object]] = {}
     repaired_versions = sorted(stale_codes_by_version)
-    if repaired_versions and all(result.get("success") for result in price_repair_results):
+    if repaired_versions and _should_rebuild_after_price_repair(price_repair_results):
         for strategy_version in repaired_versions:
             signal_df = read_csv_safely(signals_csv_for(strategy_version))
             followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)

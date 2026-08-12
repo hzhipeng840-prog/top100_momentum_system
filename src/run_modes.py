@@ -15,6 +15,33 @@ DEFAULT_RUN_MODE_TIMEZONE = "Asia/Shanghai"
 PIPELINE_RUN_MODES = ("full", "morning_capture", "tail_capture", "recompute", "backtest", "nightly_reports", "settlement_repair")
 
 
+def _safe_count(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _repair_waiting_for_price_source(repair_result: dict[str, object]) -> bool:
+    price_repair = repair_result.get("price_repair", [])
+    if not isinstance(price_repair, list):
+        return False
+
+    for item in price_repair:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("stopped_early"):
+            continue
+        stop_reason = str(item.get("stop_reason") or "").lower()
+        if "price source may not have updated" not in stop_reason and "first_attempt_low_progress" not in stop_reason:
+            continue
+        requested_count = _safe_count(item.get("requested_count"))
+        remaining_count = _safe_count(item.get("remaining_count"))
+        if requested_count > 0 and remaining_count > 0:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class PipelineModeConfig:
     mode: str
@@ -113,6 +140,15 @@ def run_named_mode(
         if not initial_freshness_ok and not bool(repair_result.get("success")):
             initial_result["mode"] = config.mode
             initial_result["nightly_settlement_repair"] = repair_result
+            if _repair_waiting_for_price_source(repair_result):
+                initial_result["success"] = True
+                initial_result["deferred"] = True
+                initial_result["deferred_reason"] = "price_source_not_ready"
+                initial_result["deferred_summary"] = (
+                    "Price source has not updated enough target-date rows; "
+                    "the generated light report is kept for a later repair run."
+                )
+                return initial_result
             initial_result["success"] = False
             return initial_result
         result = run_pipeline(

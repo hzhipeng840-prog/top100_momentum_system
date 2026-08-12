@@ -151,6 +151,9 @@ class WorkflowTasksTest(unittest.TestCase):
                         "features": {"rows": 1},
                         "signals": {"rows": 1, "pushed_rows": 1},
                         "followups": {"rows": 1},
+                        "deferred": True,
+                        "deferred_reason": "price_source_not_ready",
+                        "deferred_summary": "Price source has not updated enough target-date rows.",
                         "freshness": {"status": "stale", "is_fresh": False, "summary": "stale"},
                         "nightly_settlement_repair": {
                             "success": False,
@@ -175,6 +178,8 @@ class WorkflowTasksTest(unittest.TestCase):
 
             text = summary_path.read_text(encoding="utf-8")
             self.assertIn("## Nightly Settlement Repair", text)
+            self.assertIn("Deferred: `price_source_not_ready`", text)
+            self.assertIn("Deferred Summary: Price source has not updated enough target-date rows.", text)
             self.assertIn("Status: failed", text)
             self.assertIn("Price Repair `2026-08-07`: 9/100 repaired, 91 remaining", text)
             self.assertIn("Price Repair Stop `2026-08-07`: first_attempt_low_progress", text)

@@ -97,6 +97,41 @@ class RunModesTest(unittest.TestCase):
         self.assertEqual(mock_run_pipeline.call_count, 1)
         self.assertTrue(mock_run_pipeline.call_args.kwargs["light_reports"])
 
+    def test_run_named_mode_nightly_reports_defers_when_price_source_is_not_ready(self) -> None:
+        repair_result = {
+            "mode": "settlement_repair",
+            "success": False,
+            "target_dates": ["2026-08-12"],
+            "repair_code_count": 134,
+            "price_repair": [
+                {
+                    "target_date": "2026-08-12",
+                    "requested_count": 134,
+                    "repaired_count": 1,
+                    "remaining_count": 133,
+                    "stopped_early": True,
+                    "stop_reason": (
+                        "first_attempt_low_progress:1/134 repaired below 10%; "
+                        "price source may not have updated the target date"
+                    ),
+                }
+            ],
+        }
+        with patch("src.run_modes.run_settlement_repair", return_value=repair_result) as mock_repair:
+            with patch(
+                "src.run_modes.run_pipeline",
+                return_value={"reports": {"report_mode": "light"}, "freshness": {"is_fresh": False}},
+            ) as mock_run_pipeline:
+                result = run_named_mode("nightly_reports")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["deferred"])
+        self.assertEqual(result["deferred_reason"], "price_source_not_ready")
+        self.assertEqual(result["nightly_settlement_repair"], repair_result)
+        mock_repair.assert_called_once_with()
+        self.assertEqual(mock_run_pipeline.call_count, 1)
+        self.assertTrue(mock_run_pipeline.call_args.kwargs["light_reports"])
+
     @patch("src.run_modes.run_backtest_service")
     @patch("src.run_modes.available_strategy_versions", return_value=["v1", "v2"])
     @patch("src.run_modes.load_settings", return_value={"strategy_versions": ["v1", "v2"]})
