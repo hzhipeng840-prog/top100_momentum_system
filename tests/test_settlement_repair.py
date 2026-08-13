@@ -66,6 +66,7 @@ class SettlementRepairTest(unittest.TestCase):
             max_attempts=3,
             max_workers=4,
             retry_sleep_seconds=0,
+            preflight_sample_size=0,
         )
 
         self.assertFalse(result["success"])
@@ -77,6 +78,39 @@ class SettlementRepairTest(unittest.TestCase):
             force_refresh=True,
             max_workers=4,
         )
+
+    @patch("src.settlement_repair.warm_stock_price_cache")
+    @patch("src.settlement_repair._missing_price_codes")
+    def test_repair_price_caches_defers_after_low_progress_preflight(
+        self,
+        mock_missing_price_codes,
+        mock_warm_stock_price_cache,
+    ) -> None:
+        codes = {f"600{i:03d}" for i in range(100)}
+        initial_missing = sorted(codes)
+        mock_missing_price_codes.side_effect = [initial_missing, initial_missing]
+        mock_warm_stock_price_cache.return_value = {
+            "requested": settlement_repair.DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE,
+            "remote": 0,
+            "cache": 0,
+            "stale_cache": settlement_repair.DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE,
+            "missing": 0,
+        }
+
+        result = settlement_repair.repair_price_caches_for_target(
+            codes,
+            "2026-08-07",
+            max_attempts=3,
+            max_workers=4,
+            retry_sleep_seconds=0,
+        )
+
+        self.assertFalse(result["success"])
+        self.assertTrue(result["stopped_early"])
+        self.assertIn("preflight_low_progress", result["stop_reason"])
+        self.assertEqual(result["preflight"]["requested_count"], settlement_repair.DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE)
+        self.assertEqual(result["attempts"], [])
+        mock_warm_stock_price_cache.assert_called_once()
 
     @patch("src.settlement_repair.build_reports", return_value={"latest_push_rows": 1})
     @patch("src.settlement_repair.save_followups")

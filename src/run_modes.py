@@ -42,6 +42,18 @@ def _repair_waiting_for_price_source(repair_result: dict[str, object]) -> bool:
     return False
 
 
+def _defer_price_source_repair(repair_result: dict[str, object]) -> dict[str, object]:
+    result = dict(repair_result)
+    result["success"] = True
+    result["deferred"] = True
+    result["deferred_reason"] = "price_source_not_ready"
+    result["deferred_summary"] = (
+        "Price source has not updated enough target-date rows; "
+        "the settlement repair is deferred to a later run."
+    )
+    return result
+
+
 @dataclass(frozen=True)
 class PipelineModeConfig:
     mode: str
@@ -118,7 +130,10 @@ def run_named_mode(
 ) -> dict[str, object]:
     config = resolve_pipeline_mode_config(mode, snapshot_time=snapshot_time, timezone=timezone)
     if config.mode == "settlement_repair":
-        return run_settlement_repair()
+        repair_result = run_settlement_repair()
+        if not bool(repair_result.get("success")) and _repair_waiting_for_price_source(repair_result):
+            return _defer_price_source_repair(repair_result)
+        return repair_result
     if config.mode == "nightly_reports":
         initial_result = run_pipeline(
             native_fetch=False,

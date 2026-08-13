@@ -35,6 +35,29 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         mock_run_settlement_repair.assert_called_once_with()
 
+    @patch(
+        "src.run_modes.run_settlement_repair",
+        return_value={
+            "mode": "settlement_repair",
+            "success": False,
+            "price_repair": [
+                {
+                    "requested_count": 15,
+                    "remaining_count": 15,
+                    "stopped_early": True,
+                    "stop_reason": "preflight_low_progress:0/15 repaired below 10%; price source may not have updated the target date",
+                }
+            ],
+        },
+    )
+    def test_run_named_mode_settlement_repair_defers_when_price_source_is_not_ready(self, mock_run_settlement_repair) -> None:
+        result = run_named_mode("settlement_repair")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["deferred"])
+        self.assertEqual(result["deferred_reason"], "price_source_not_ready")
+        mock_run_settlement_repair.assert_called_once_with()
+
     def test_run_named_mode_nightly_reports_runs_full_local_reports_when_initial_fresh(self) -> None:
         with patch("src.run_modes.run_settlement_repair") as mock_repair:
             with patch(

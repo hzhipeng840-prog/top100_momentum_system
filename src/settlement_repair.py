@@ -20,6 +20,7 @@ DEFAULT_REPAIR_MAX_ATTEMPTS = 3
 DEFAULT_REPAIR_MAX_WORKERS = 4
 DEFAULT_REPAIR_SLEEP_SECONDS = 3.0
 DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO = 0.10
+DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE = 15
 
 
 def _safe_int(value: object) -> int:
@@ -56,6 +57,18 @@ def _missing_price_codes(codes: set[str], target_date: object) -> list[str]:
     return sorted(code for code in codes if not _price_cache_reaches_date(code, target_date))
 
 
+def _preflight_sample(codes: list[str], sample_size: int) -> list[str]:
+    if sample_size <= 0 or len(codes) <= sample_size:
+        return list(codes)
+
+    last_index = len(codes) - 1
+    sample_indexes = {
+        round(index * last_index / (sample_size - 1))
+        for index in range(sample_size)
+    }
+    return [code for index, code in enumerate(codes) if index in sample_indexes]
+
+
 def _settlement_codes(followup_df: pd.DataFrame, settlement_date: object) -> set[str]:
     settlement_date_text = _normalize_date_text(settlement_date)
     if followup_df.empty or "signal_date" not in followup_df.columns or "code" not in followup_df.columns or not settlement_date_text:
@@ -76,6 +89,7 @@ def repair_price_caches_for_target(
     max_workers: int = DEFAULT_REPAIR_MAX_WORKERS,
     retry_sleep_seconds: float = DEFAULT_REPAIR_SLEEP_SECONDS,
     min_first_attempt_progress_ratio: float = DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO,
+    preflight_sample_size: int = DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE,
 ) -> dict[str, object]:
     target_date_text = _normalize_date_text(target_date)
     normalized_codes = {normalize_code(code) for code in codes if normalize_code(code)}
@@ -87,8 +101,38 @@ def repair_price_caches_for_target(
     initial_missing_count = len(remaining)
     stopped_early = False
     stop_reason = ""
+    preflight: dict[str, object] | None = None
+
+    sample_codes = _preflight_sample(remaining, max(0, int(preflight_sample_size)))
+    if sample_codes and len(sample_codes) < len(remaining):
+        preflight_stats = warm_stock_price_cache(
+            sample_codes,
+            force_refresh=True,
+            max_workers=worker_count,
+        )
+        remaining = _missing_price_codes(normalized_codes, target_date_text)
+        remaining_sample_codes = set(remaining).intersection(sample_codes)
+        preflight_repaired_count = len(sample_codes) - len(remaining_sample_codes)
+        preflight_progress_ratio = preflight_repaired_count / len(sample_codes)
+        preflight = {
+            "requested_codes": sample_codes,
+            "requested_count": len(sample_codes),
+            "repaired_count": preflight_repaired_count,
+            "remaining_count": len(remaining_sample_codes),
+            "progress_ratio": preflight_progress_ratio,
+            "stats": preflight_stats,
+        }
+        if remaining and preflight_progress_ratio < first_attempt_progress_floor:
+            stopped_early = True
+            stop_reason = (
+                "preflight_low_progress:"
+                f"{preflight_repaired_count}/{len(sample_codes)} repaired below "
+                f"{first_attempt_progress_floor:.0%}; price source may not have updated the target date"
+            )
 
     for attempt in range(1, attempt_count + 1):
+        if stopped_early:
+            break
         if not remaining:
             break
         remaining_before = len(remaining)
@@ -146,6 +190,7 @@ def repair_price_caches_for_target(
         "max_attempts": attempt_count,
         "max_workers": worker_count,
         "min_first_attempt_progress_ratio": first_attempt_progress_floor,
+        "preflight": preflight,
         "repaired_codes": repaired,
         "repaired_count": len(repaired),
         "remaining_codes": remaining,

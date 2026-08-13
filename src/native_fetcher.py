@@ -17,6 +17,7 @@ DEFAULT_REMOTE_START_DATE = "20230101"
 REFRESH_LOOKBACK_DAYS = 40
 STOCK_CACHE_MAX_WORKERS = 6
 SEQUENTIAL_REFRESH_THRESHOLD = 8
+STOCK_PRICE_REQUEST_TIMEOUT_SECONDS = 10
 POPULARITY_FETCH_TIMEOUTS = (15, 25, 35)
 POPULARITY_RETRY_SLEEP_SECONDS = 2
 LIGHT_CAPTURE_TYPES = {
@@ -292,6 +293,7 @@ def fetch_stock_price(code: str, force_refresh: bool = False) -> tuple[pd.DataFr
                     start_date=start_date,
                     end_date="20300101",
                     adjust="qfq",
+                    timeout=STOCK_PRICE_REQUEST_TIMEOUT_SECONDS,
                 )
             )
             if not remote_df.empty:
@@ -310,6 +312,7 @@ def fetch_stock_price(code: str, force_refresh: bool = False) -> tuple[pd.DataFr
                         start_date=start_date,
                         end_date="20300101",
                         adjust="qfq",
+                        timeout=STOCK_PRICE_REQUEST_TIMEOUT_SECONDS,
                     )
                 )
                 if not remote_df.empty:

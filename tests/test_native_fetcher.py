@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
@@ -9,6 +11,31 @@ from src import native_fetcher
 
 
 class NativeFetcherWarmCacheTest(unittest.TestCase):
+    @patch("src.native_fetcher.write_csv")
+    @patch("src.native_fetcher.read_csv_safely", return_value=pd.DataFrame())
+    @patch("src.native_fetcher.time.sleep")
+    def test_fetch_stock_price_passes_timeout_to_each_remote_source(
+        self,
+        _mock_sleep,
+        _mock_read_csv_safely,
+        _mock_write_csv,
+    ) -> None:
+        tx_fetch = Mock(side_effect=RuntimeError("Tencent unavailable"))
+        fallback_fetch = Mock(
+            return_value=pd.DataFrame(
+                [{"日期": "2026-08-13", "开盘": 10, "收盘": 11, "最高": 12, "最低": 9, "成交量": 100}]
+            )
+        )
+        fake_akshare = SimpleNamespace(stock_zh_a_hist_tx=tx_fetch, stock_zh_a_hist=fallback_fetch)
+
+        with patch.dict(sys.modules, {"akshare": fake_akshare}):
+            _prices, source = native_fetcher.fetch_stock_price("600001", force_refresh=True)
+
+        self.assertEqual(source, "remote")
+        self.assertEqual(tx_fetch.call_count, 3)
+        self.assertEqual(tx_fetch.call_args.kwargs["timeout"], native_fetcher.STOCK_PRICE_REQUEST_TIMEOUT_SECONDS)
+        self.assertEqual(fallback_fetch.call_args.kwargs["timeout"], native_fetcher.STOCK_PRICE_REQUEST_TIMEOUT_SECONDS)
+
     @patch("src.native_fetcher.fetch_stock_price")
     def test_warm_stock_price_cache_deduplicates_and_counts_sources(self, mock_fetch_stock_price) -> None:
         def fake_fetch(code: str, force_refresh: bool = False):
