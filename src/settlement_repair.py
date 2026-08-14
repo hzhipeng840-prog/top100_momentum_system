@@ -13,6 +13,7 @@ from src.pipeline import _optional_positive_int, _stale_settlement_codes
 from src.reports import build_reports
 from src.settings import load_settings
 from src.strategy_profiles import DEFAULT_STRATEGY_VERSION, available_strategy_versions, normalize_strategy_version
+from src.trading_calendar import latest_expected_market_date
 from src.utils import normalize_code, read_csv_safely
 
 
@@ -21,6 +22,7 @@ DEFAULT_REPAIR_MAX_WORKERS = 4
 DEFAULT_REPAIR_SLEEP_SECONDS = 3.0
 DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO = 0.10
 DEFAULT_REPAIR_PREFLIGHT_SAMPLE_SIZE = 15
+DEFAULT_HISTORICAL_BACKFILL_BATCH_SIZE = 80
 
 
 def _safe_int(value: object) -> int:
@@ -55,6 +57,47 @@ def _price_cache_reaches_date(code: object, target_date: object) -> bool:
 
 def _missing_price_codes(codes: set[str], target_date: object) -> list[str]:
     return sorted(code for code in codes if not _price_cache_reaches_date(code, target_date))
+
+
+def _truthy_mask(series: pd.Series) -> pd.Series:
+    return series.fillna(False).astype(str).str.strip().str.lower().isin({"1", "true", "yes", "y"})
+
+
+def _historical_backfill_batch(
+    strategy_versions: list[str],
+    target_date: object,
+    *,
+    max_followup_days: int,
+    batch_size: int,
+) -> dict[str, object]:
+    settled_column = f"settled_{max(1, int(max_followup_days))}d"
+    candidates: set[str] = set()
+
+    for strategy_version in strategy_versions:
+        followup_df = read_csv_safely(followups_csv_for(strategy_version))
+        if followup_df.empty or "code" not in followup_df.columns:
+            continue
+        if settled_column in followup_df.columns:
+            unfinished = followup_df[~_truthy_mask(followup_df[settled_column])]
+        elif "observed_days" in followup_df.columns:
+            observed_days = pd.to_numeric(followup_df["observed_days"], errors="coerce").fillna(0)
+            unfinished = followup_df[observed_days < max_followup_days]
+        else:
+            continue
+        candidates.update(unfinished["code"].dropna().astype(str).map(normalize_code))
+
+    candidates.discard("")
+    missing_codes = _missing_price_codes(candidates, target_date)
+    resolved_batch_size = max(0, int(batch_size))
+    batch_codes = missing_codes[:resolved_batch_size] if resolved_batch_size else []
+    return {
+        "target_date": _normalize_date_text(target_date),
+        "settled_column": settled_column,
+        "candidate_code_count": len(candidates),
+        "missing_before_count": len(missing_codes),
+        "batch_codes": batch_codes,
+        "batch_code_count": len(batch_codes),
+    }
 
 
 def _preflight_sample(codes: list[str], sample_size: int) -> list[str]:
@@ -263,6 +306,7 @@ def run_settlement_repair(
     max_workers: int = DEFAULT_REPAIR_MAX_WORKERS,
     retry_sleep_seconds: float = DEFAULT_REPAIR_SLEEP_SECONDS,
     min_first_attempt_progress_ratio: float = DEFAULT_REPAIR_MIN_FIRST_ATTEMPT_PROGRESS_RATIO,
+    include_historical_backfill: bool = False,
 ) -> dict[str, object]:
     settings = load_settings()
     strategy_versions = available_strategy_versions(settings)
@@ -271,6 +315,9 @@ def run_settlement_repair(
     latest_push_limit = _optional_positive_int(settings.get("latest_push_limit"))
     strong_threshold = float(settings.get("strong_return_threshold_pct", 15))
     freshness_min_ratio = float(settings.get("settlement_freshness_min_ratio", 0.95))
+    historical_backfill_batch_size = _safe_int(
+        settings.get("settlement_backfill_batch_size", DEFAULT_HISTORICAL_BACKFILL_BATCH_SIZE)
+    )
     market_regime_df = read_csv_safely(MARKET_REGIME_CSV)
 
     started_at = datetime.now().isoformat(timespec="seconds")
@@ -300,10 +347,68 @@ def run_settlement_repair(
             )
         )
 
+    historical_backfill: dict[str, object] = {
+        "enabled": bool(include_historical_backfill),
+        "batch_code_count": 0,
+        "repaired_count": 0,
+        "remaining_count": 0,
+        "remaining_backlog_count": 0,
+    }
+    backfill_repaired = False
+    if include_historical_backfill:
+        backfill_target_date = latest_expected_market_date().strftime("%Y-%m-%d")
+        historical_backfill = _historical_backfill_batch(
+            strategy_versions,
+            backfill_target_date,
+            max_followup_days=max((int(day) for day in followup_days if int(day) > 0), default=1),
+            batch_size=historical_backfill_batch_size,
+        )
+        historical_backfill["remaining_backlog_count"] = _safe_int(
+            historical_backfill.get("missing_before_count")
+        )
+        batch_codes = historical_backfill.get("batch_codes", [])
+        if isinstance(batch_codes, list) and batch_codes:
+            backfill_result = repair_price_caches_for_target(
+                set(batch_codes),
+                backfill_target_date,
+                max_attempts=1,
+                max_workers=max_workers,
+                retry_sleep_seconds=retry_sleep_seconds,
+                min_first_attempt_progress_ratio=min_first_attempt_progress_ratio,
+            )
+            price_repair_results.append(backfill_result)
+            backfill_repaired = _should_rebuild_after_price_repair([backfill_result])
+            remaining_after_count = len(
+                _missing_price_codes(
+                    set(batch_codes),
+                    backfill_target_date,
+                )
+            )
+            historical_backfill.update(
+                {
+                    "price_repair": backfill_result,
+                    "repaired_count": _safe_int(backfill_result.get("repaired_count")),
+                    "remaining_count": remaining_after_count,
+                    "stopped_early": bool(backfill_result.get("stopped_early")),
+                    "stop_reason": str(backfill_result.get("stop_reason") or ""),
+                }
+            )
+            remaining_backlog = _historical_backfill_batch(
+                strategy_versions,
+                backfill_target_date,
+                max_followup_days=max((int(day) for day in followup_days if int(day) > 0), default=1),
+                batch_size=0,
+            )
+            historical_backfill["remaining_backlog_count"] = _safe_int(
+                remaining_backlog.get("missing_before_count")
+            )
+
     report_results: dict[str, dict[str, object]] = {}
-    repaired_versions = sorted(stale_codes_by_version)
+    repaired_versions = set(stale_codes_by_version)
+    if backfill_repaired:
+        repaired_versions.update(strategy_versions)
     if repaired_versions and _should_rebuild_after_price_repair(price_repair_results):
-        for strategy_version in repaired_versions:
+        for strategy_version in sorted(repaired_versions):
             signal_df = read_csv_safely(signals_csv_for(strategy_version))
             followup_df = build_followups(signal_df, days=followup_days, strategy_version=strategy_version)
             save_followups(followup_df, strategy_version=strategy_version)
@@ -331,11 +436,12 @@ def run_settlement_repair(
         "success": success,
         "strategy_versions": strategy_versions,
         "default_strategy_version": default_strategy_version,
-        "repair_versions": repaired_versions,
+        "repair_versions": sorted(repaired_versions),
         "repair_codes": sorted(repair_codes),
         "repair_code_count": len(repair_codes),
         "target_dates": sorted(target_dates),
         "price_repair": price_repair_results,
+        "historical_backfill": historical_backfill,
         "reports": report_results,
         "freshness_before": before_freshness,
         "freshness_after": after_freshness,

@@ -210,6 +210,17 @@ def write_workflow_summary(summary_path: Path, result: dict[str, object]) -> Non
             )
             if repair_freshness:
                 lines.append(f"- Final Freshness: `{repair_freshness.get('status', '')}` {repair_freshness.get('summary', '')}")
+            historical_backfill = (
+                nightly_repair_payload.get("historical_backfill", {})
+                if isinstance(nightly_repair_payload.get("historical_backfill"), dict)
+                else {}
+            )
+            if historical_backfill.get("enabled"):
+                lines.append(
+                    f"- Historical Backfill: batch `{historical_backfill.get('batch_code_count', 0)}`, "
+                    f"repaired `{historical_backfill.get('repaired_count', 0)}`, "
+                    f"remaining backlog `{historical_backfill.get('remaining_backlog_count', 0)}`"
+                )
 
     repair_result = result.get("repair") if isinstance(result.get("repair"), dict) else None
     if repair_result:

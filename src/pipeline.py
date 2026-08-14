@@ -282,6 +282,7 @@ def run_pipeline(
     snapshot_time: str | None = None,
     force_refresh_prices: bool = False,
     light_reports: bool | None = None,
+    refresh_followup_price_cache: bool = True,
 ) -> dict:
     settings = load_settings()
     ensure_layout()
@@ -470,6 +471,8 @@ def run_pipeline(
         signal_df = signal_frames[strategy_version]
         if not light_capture_mode:
             should_refresh_followup_prices = (
+                refresh_followup_price_cache
+                and
                 native_fetch
                 and data_status in {"ok", "skipped_market_closed", "skipped_existing_snapshot"}
                 and bool(settings.get("refresh_price_cache", True))
@@ -513,6 +516,13 @@ def run_pipeline(
 
     if followup_price_cache_stats is not None:
         result["followup_price_cache"] = followup_price_cache_stats
+    elif not refresh_followup_price_cache and full_capture_mode:
+        # The selected task already refreshed today's Top100. Freshness repair below
+        # handles the due settlement slice without re-fetching the whole history.
+        result["followup_price_cache"] = {
+            "status": "deferred_to_settlement_repair",
+            "reason": "full mode avoids refreshing every historical follow-up code",
+        }
 
     result["followups"] = strategy_results.get(default_strategy_version, {}).get("followups", {})
     result["reports"] = strategy_results.get(default_strategy_version, {}).get("reports", {})

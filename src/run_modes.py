@@ -144,14 +144,7 @@ def run_named_mode(
         )
         initial_freshness = initial_result.get("freshness", {}) if isinstance(initial_result.get("freshness"), dict) else {}
         initial_freshness_ok = bool(initial_freshness.get("is_fresh")) if "is_fresh" in initial_freshness else False
-        repair_result: dict[str, object] = {
-            "mode": "settlement_repair",
-            "success": True,
-            "skipped": True,
-            "reason": "initial_freshness_ok",
-        }
-        if not initial_freshness_ok:
-            repair_result = run_settlement_repair()
+        repair_result = run_settlement_repair(include_historical_backfill=True)
         if not initial_freshness_ok and not bool(repair_result.get("success")):
             initial_result["mode"] = config.mode
             initial_result["nightly_settlement_repair"] = repair_result
@@ -203,6 +196,7 @@ def run_named_mode(
         capture_type=config.capture_type,
         snapshot_time=config.snapshot_time,
         force_refresh_prices=force_refresh_prices,
+        refresh_followup_price_cache=config.mode != "full",
     )
     result["mode"] = config.mode
     return result

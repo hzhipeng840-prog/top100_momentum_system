@@ -18,6 +18,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "strong_return_threshold_pct": 15,
     "followup_days": [1, 3, 5, 10],
     "settlement_freshness_min_ratio": 0.95,
+    "settlement_backfill_batch_size": 80,
     "full_report_mode": "light",
     "enable_v4_context_in_full": False,
     "refresh_price_cache": True,

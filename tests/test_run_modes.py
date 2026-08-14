@@ -35,6 +35,18 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         mock_run_settlement_repair.assert_called_once_with()
 
+    def test_run_named_mode_full_defers_broad_followup_price_refresh(self) -> None:
+        with patch("src.run_modes.run_pipeline", return_value={}) as mock_run_pipeline:
+            run_named_mode("full")
+
+        self.assertFalse(mock_run_pipeline.call_args.kwargs["refresh_followup_price_cache"])
+
+    def test_run_named_mode_tail_capture_keeps_followup_price_refresh(self) -> None:
+        with patch("src.run_modes.run_pipeline", return_value={}) as mock_run_pipeline:
+            run_named_mode("tail_capture", snapshot_time="2026-05-06 14:30:00")
+
+        self.assertTrue(mock_run_pipeline.call_args.kwargs["refresh_followup_price_cache"])
+
     @patch(
         "src.run_modes.run_settlement_repair",
         return_value={
@@ -71,8 +83,7 @@ class RunModesTest(unittest.TestCase):
 
         self.assertEqual(result["mode"], "nightly_reports")
         self.assertTrue(result["success"])
-        self.assertTrue(result["nightly_settlement_repair"]["skipped"])
-        mock_repair.assert_not_called()
+        mock_repair.assert_called_once_with(include_historical_backfill=True)
         self.assertEqual(mock_run_pipeline.call_count, 2)
         self.assertTrue(mock_run_pipeline.call_args_list[0].kwargs["light_reports"])
         self.assertFalse(mock_run_pipeline.call_args_list[1].kwargs["light_reports"])
@@ -91,7 +102,7 @@ class RunModesTest(unittest.TestCase):
         self.assertEqual(result["mode"], "nightly_reports")
         self.assertTrue(result["success"])
         self.assertEqual(result["nightly_settlement_repair"]["mode"], "settlement_repair")
-        mock_repair.assert_called_once_with()
+        mock_repair.assert_called_once_with(include_historical_backfill=True)
         self.assertEqual(mock_run_pipeline.call_count, 2)
         mock_run_pipeline.assert_any_call(
             native_fetch=False,
@@ -109,7 +120,7 @@ class RunModesTest(unittest.TestCase):
         )
 
     def test_run_named_mode_nightly_reports_fails_when_repair_stays_stale(self) -> None:
-        with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": False}):
+        with patch("src.run_modes.run_settlement_repair", return_value={"mode": "settlement_repair", "success": False}) as mock_repair:
             with patch(
                 "src.run_modes.run_pipeline",
                 return_value={"reports": {"report_mode": "light"}, "freshness": {"is_fresh": False}},
@@ -119,6 +130,7 @@ class RunModesTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(mock_run_pipeline.call_count, 1)
         self.assertTrue(mock_run_pipeline.call_args.kwargs["light_reports"])
+        mock_repair.assert_called_once_with(include_historical_backfill=True)
 
     def test_run_named_mode_nightly_reports_defers_when_price_source_is_not_ready(self) -> None:
         repair_result = {
@@ -151,7 +163,7 @@ class RunModesTest(unittest.TestCase):
         self.assertTrue(result["deferred"])
         self.assertEqual(result["deferred_reason"], "price_source_not_ready")
         self.assertEqual(result["nightly_settlement_repair"], repair_result)
-        mock_repair.assert_called_once_with()
+        mock_repair.assert_called_once_with(include_historical_backfill=True)
         self.assertEqual(mock_run_pipeline.call_count, 1)
         self.assertTrue(mock_run_pipeline.call_args.kwargs["light_reports"])
 

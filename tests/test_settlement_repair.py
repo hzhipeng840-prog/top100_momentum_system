@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +10,99 @@ from src import settlement_repair
 
 
 class SettlementRepairTest(unittest.TestCase):
+    @patch("src.settlement_repair._missing_price_codes")
+    @patch("src.settlement_repair.read_csv_safely")
+    def test_historical_backfill_batch_is_bounded_and_skips_current_cache(
+        self,
+        mock_read_csv_safely,
+        mock_missing_price_codes,
+    ) -> None:
+        mock_read_csv_safely.return_value = pd.DataFrame(
+            [
+                {"code": "600001", "settled_10d": False},
+                {"code": "600002", "settled_10d": False},
+                {"code": "600003", "settled_10d": True},
+            ]
+        )
+        mock_missing_price_codes.return_value = ["600001", "600004"]
+
+        result = settlement_repair._historical_backfill_batch(
+            ["v1"],
+            "2026-08-14",
+            max_followup_days=10,
+            batch_size=1,
+        )
+
+        self.assertEqual(result["candidate_code_count"], 2)
+        self.assertEqual(result["missing_before_count"], 2)
+        self.assertEqual(result["batch_codes"], ["600001"])
+
+    @patch("src.settlement_repair.build_reports", return_value={})
+    @patch("src.settlement_repair.save_followups")
+    @patch("src.settlement_repair.build_followups", return_value=pd.DataFrame())
+    @patch("src.settlement_repair.read_csv_safely", return_value=pd.DataFrame())
+    @patch("src.settlement_repair.repair_price_caches_for_target")
+    @patch("src.settlement_repair._historical_backfill_batch")
+    @patch("src.settlement_repair._repair_targets")
+    @patch("src.settlement_repair.latest_expected_market_date", return_value=pd.Timestamp("2026-08-14"))
+    @patch("src.settlement_repair.available_strategy_versions", return_value=["v1"])
+    @patch(
+        "src.settlement_repair.load_settings",
+        return_value={
+            "default_strategy_version": "v1",
+            "strategy_versions": ["v1"],
+            "followup_days": [1, 3, 5, 10],
+            "settlement_backfill_batch_size": 80,
+            "latest_push_limit": None,
+            "strong_return_threshold_pct": 15,
+            "settlement_freshness_min_ratio": 0.95,
+        },
+    )
+    def test_historical_backfill_rebuilds_results_and_keeps_payload_serializable(
+        self,
+        _mock_load_settings,
+        _mock_available_versions,
+        _mock_latest_expected_market_date,
+        mock_repair_targets,
+        mock_historical_backfill_batch,
+        mock_repair_price_caches,
+        _mock_read_csv_safely,
+        mock_build_followups,
+        mock_save_followups,
+        mock_build_reports,
+    ) -> None:
+        fresh_report = {"status": "fresh", "is_fresh": True, "settlement_row_count": 0}
+        mock_repair_targets.side_effect = [({"v1": fresh_report}, {}, {}), ({"v1": fresh_report}, {}, {})]
+        mock_historical_backfill_batch.side_effect = [
+            {
+                "target_date": "2026-08-14",
+                "candidate_code_count": 3,
+                "missing_before_count": 3,
+                "batch_codes": ["600001"],
+                "batch_code_count": 1,
+            },
+            {"missing_before_count": 2, "batch_codes": [], "batch_code_count": 0},
+        ]
+        mock_repair_price_caches.return_value = {
+            "target_date": "2026-08-14",
+            "requested_count": 1,
+            "repaired_count": 1,
+            "remaining_count": 0,
+            "success": True,
+        }
+
+        result = settlement_repair.run_settlement_repair(
+            include_historical_backfill=True,
+            retry_sleep_seconds=0,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["repair_versions"], ["v1"])
+        self.assertEqual(result["historical_backfill"]["remaining_backlog_count"], 2)
+        mock_build_followups.assert_called_once()
+        mock_save_followups.assert_called_once()
+        mock_build_reports.assert_called_once()
+        json.dumps(result)
     @patch("src.settlement_repair.warm_stock_price_cache")
     @patch("src.settlement_repair._missing_price_codes")
     def test_repair_price_caches_retries_until_target_date_is_present(
