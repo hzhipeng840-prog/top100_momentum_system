@@ -1,2 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-08-14,17,600881,亚泰集团,普通观察,66.5,7.05,,震荡,0.44,0.42,2026-08-14,0,common_index_cache,6.61,,0.892,,0.0,2,23.0,intraday_0950,2026-08-14 09:50:00,人气Top20；当日强涨；收盘承接较强；站上20日线且不过热；连续上榜确认；人气排名明显上升；震荡市里保持相对强势；震荡市里承接未失控,-,保留在样本池，继续看次日人气和承接。,v2
+﻿strategy_version
