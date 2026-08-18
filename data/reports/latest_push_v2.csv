@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-08-18,1,600487,亨通光电,重点观察,82.0,3.72,21.21,强势,2.2,2.54,2026-08-17,1,common_index_cache,1.52,18.67,0.968,0.52,1.4,74,0.0,intraday_0950,2026-08-18 09:50:00,人气Top3；当日上涨；收在日内高位；近5日趋势升温；站上20日线且不过热；持续霸榜；市场强势且个股相对强势,热度可能进入后段,只做观察或轻仓试错，等待回落承接和量能不失控。,v2
