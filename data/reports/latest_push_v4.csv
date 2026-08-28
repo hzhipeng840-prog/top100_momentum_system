@@ -1,2 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-08-27,9,002491,通鼎互联,普通观察,80.4,3.75,13.85,强势,1.4,0.57,2026-08-27,0,common_index_cache,2.35,13.28,0.841,1.71,19.92,12,16.0,post_close,2026-08-27 15:00:00,人气Top10；当日上涨；收盘承接较强；温和放量；近5日趋势升温；站上20日线且不过热；持续霸榜；人气排名明显上升；市场强势且个股相对强势；v4多头排列技术加分,热度可能进入后段；v4乖离率过大；v4远离短中期均线,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
+﻿strategy_version
