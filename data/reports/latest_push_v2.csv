@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-09-11,6,000978,桂林旅游,重点观察,82.0,5.49,27.64,震荡,-0.97,-0.28,2026-09-11,0,common_index_cache,6.46,27.92,0.7,1.14,24.43,3,22.0,intraday_0950,2026-09-11 09:50:00,人气Top10；当日上涨；温和放量；近5日强势延续；站上20日线且不过热；连续上榜确认；人气排名明显上升；震荡市里保持相对强势；v2连榜升温修正,短线涨幅偏高,只做观察或轻仓试错，等待回落承接和量能不失控。,v2
