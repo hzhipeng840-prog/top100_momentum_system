@@ -1,1 +1,2 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-09-22,80,002068,黑猫股份,普通观察,88.4,4.76,12.26,强势,0.01,3.23,2026-09-22,0,common_index_cache,4.75,9.03,0.935,1.26,14.02,2,-72.0,post_close,2026-09-22 15:00:00,当日上涨；收在日内高位；温和放量；近5日趋势升温；站上20日线且不过热；连续上榜确认；市场强势且个股相对强势；v4多头排列技术加分；v4放量突破但不过热；v4沿短均线抬升,人气排名明显回落,强势归纳版：保留在候选池，优先跟踪早段强势和缩量承接，不主动接后段退潮样本。,v4
