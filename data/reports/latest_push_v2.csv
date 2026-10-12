@@ -1,1 +1,4 @@
-﻿strategy_version
+﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
+2026-10-12,6,002709,天赐材料,普通观察,62.0,0.98,0.81,弱势,0.13,-4.41,2026-10-09,3,common_index_cache,0.85,5.22,0.811,1.15,-2.0,2,27.0,intraday_0950,2026-10-12 09:50:00,人气Top10；收盘承接较强；温和放量；连续上榜确认；人气排名明显上升；弱市中个股相对抗跌,-,保留在样本池，继续看次日人气和承接。,v2
+2026-10-12,7,600127,金健米业,普通观察,62.0,9.16,,弱势,0.13,-4.41,2026-10-09,3,common_index_cache,9.03,,0.809,,0.0,32,9.0,intraday_0950,2026-10-12 09:50:00,人气Top10；当日强涨；收盘承接较强；站上20日线且不过热；持续霸榜；弱市中个股相对抗跌,热度可能进入后段；弱市里的长连榜样本优先降权,保留在样本池，继续看次日人气和承接。,v2
+2026-10-12,15,300364,中文在线,普通观察,62.0,5.72,,弱势,0.13,-4.41,2026-10-09,3,common_index_cache,5.59,,0.964,,0.0,2,57.0,intraday_0950,2026-10-12 09:50:00,人气Top20；当日上涨；收在日内高位；站上20日线且不过热；连续上榜确认；人气排名明显上升；弱市中个股相对抗跌,-,保留在样本池，继续看次日人气和承接。,v2
