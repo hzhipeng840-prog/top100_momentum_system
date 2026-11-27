@@ -1,5 +1,1 @@
-﻿signal_date,rank,code,name,push_level,emotion_score,day_return_pct,pre5_return_pct,market_regime,market_1d_pct,market_5d_pct,market_price_date,market_lag_days,market_source,relative_1d_pct,relative_5d_pct,close_position,volume_ratio_5,dist_ma20_pct,consecutive_days,rank_change,capture_type,snapshot_time,reasons,risks,suggested_action,strategy_version
-2026-11-26,2,000530,冰山冷热,普通观察,74.0,7.14,,未知,-1.78,-1.21,2026-11-13,13.0,common_index_cache,8.92,,0.915,,0.0,32,1.0,intraday_0950,2026-11-26 09:50:00,人气Top3；当日强涨；收在日内高位；站上20日线且不过热；持续霸榜,热度可能进入后段,保留在样本池，继续看次日人气和承接。,v2
-2026-11-26,1,002242,九阳股份,普通观察,66.0,5.65,,未知,-1.78,-1.21,2026-11-13,13.0,common_index_cache,7.43,,0.922,,0.0,38,0.0,intraday_0950,2026-11-26 09:50:00,人气Top3；当日上涨；收在日内高位；站上20日线且不过热；持续霸榜,热度可能进入后段,保留在样本池，继续看次日人气和承接。,v2
-2026-11-26,10,600722,金牛化工,普通观察,66.0,7.6,,未知,-1.78,-1.21,2026-11-13,13.0,common_index_cache,9.38,,0.799,,0.0,2,3.0,intraday_0950,2026-11-26 09:50:00,人气Top10；当日强涨；收盘承接较强；站上20日线且不过热；连续上榜确认,-,保留在样本池，继续看次日人气和承接。,v2
-2026-11-26,7,002086,东方海洋,普通观察,60.0,9.45,,未知,-1.78,-1.21,2026-11-13,13.0,common_index_cache,11.23,,0.959,,0.0,23,3.0,intraday_0950,2026-11-26 09:50:00,人气Top10；当日强涨；收在日内高位；站上20日线且不过热；持续霸榜,热度可能进入后段；v2回避非封板高位追涨样本,保留在样本池，继续看次日人气和承接。,v2
+﻿strategy_version
